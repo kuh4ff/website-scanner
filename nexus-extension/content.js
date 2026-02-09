@@ -16,8 +16,106 @@
     let scannerInjected = false;
     let scanResults = { findings: 0, apiKeys: 0, tokens: 0 };
     
-    // ==================== Extension Marker ====================
-    // Set marker for page scripts to detect extension
+    // ══════════════════════════════════════════════════════════════════════════════
+    // CRITICAL: Set up window message listener FIRST, BEFORE setting the marker!
+    // This prevents race condition where scanner detects extension but listener isn't ready
+    // ══════════════════════════════════════════════════════════════════════════════
+    window.addEventListener('message', (event) => {
+        if (event.source !== window) return;
+        
+        const data = event.data;
+        if (!data) return;
+        
+        // ==================== Terminal Bridge Requests from Page ====================
+        // Handle connection requests from all_phases.js TerminalBridge
+        if (data.nexusExtension === true) {
+            console.log('[NEXUS Content] Extension request from page:', data.action);
+            
+            switch(data.action) {
+                case 'connect':
+                    // Forward to background for WebSocket connection
+                    chrome.runtime.sendMessage({
+                        type: 'CONNECT_TERMINAL',
+                        url: data.serverUrl,
+                        token: data.token
+                    }, (response) => {
+                        // Check for errors
+                        const lastError = chrome.runtime.lastError;
+                        if (lastError) {
+                            console.error('[NEXUS Content] Background error:', lastError.message);
+                            window.postMessage({
+                                nexusResponse: true,
+                                success: false,
+                                error: lastError.message
+                            }, '*');
+                            return;
+                        }
+                        // Send response back to page
+                        window.postMessage({
+                            nexusResponse: true,
+                            success: response?.success || false,
+                            error: response?.error || null
+                        }, '*');
+                    });
+                    break;
+                    
+                case 'disconnect':
+                    chrome.runtime.sendMessage({ type: 'DISCONNECT_TERMINAL' }, (response) => {
+                        window.postMessage({ nexusResponse: true, success: true }, '*');
+                    });
+                    break;
+                    
+                case 'send':
+                    chrome.runtime.sendMessage({
+                        type: 'RELAY_TO_TERMINAL',
+                        data: data.payload
+                    }, (response) => {
+                        if (response?.success === false) {
+                            console.warn('[NEXUS Content] Send failed:', response.error);
+                        }
+                    });
+                    break;
+                    
+                case 'getStatus':
+                    chrome.runtime.sendMessage({ type: 'GET_WS_STATUS' }, (response) => {
+                        window.postMessage({
+                            nexusResponse: true,
+                            type: 'status',
+                            connected: response?.connected || false,
+                            url: response?.url || null
+                        }, '*');
+                    });
+                    break;
+            }
+            return;
+        }
+        
+        // Messages from injected scanner
+        if (data.type === 'NEXUS_TO_EXTENSION') {
+            chrome.runtime.sendMessage(data.payload);
+        }
+        
+        // Scanner status update
+        if (data.type === 'NEXUS_SCANNER_READY') {
+            scannerInjected = true;
+            console.log('[NEXUS Content] Scanner detected as ready');
+        }
+        
+        // Scan results
+        if (data.type === 'NEXUS_SCAN_RESULTS') {
+            scanResults = data.stats || scanResults;
+        }
+        
+        // Terminal connect result from page
+        if (data.type === 'NEXUS_TERMINAL_CONNECT_RESULT') {
+            // Already handled by specific listeners
+        }
+    });
+    
+    console.log('[NEXUS Content] Window message listener ready');
+    
+    // ==================== NOW set the Extension Marker ====================
+    // This comes AFTER the listener so any immediate messages can be handled
     function setExtensionMarker() {
         const script = document.createElement('script');
         script.textContent = `
@@ -31,8 +129,9 @@
         script.remove();
     }
     
-    // Set marker immediately
+    // Set marker after listener is ready
     setExtensionMarker();
+    console.log('[NEXUS Content] Extension marker set');
     
     // ==================== Message Handlers ====================
     // Listen for messages from popup
@@ -170,109 +269,39 @@
         script.remove();
     }
     
-    // Listen for messages from page (injected script)
-    window.addEventListener('message', (event) => {
-        if (event.source !== window) return;
-        
-        const data = event.data;
-        if (!data) return;
-        
-        // ==================== Terminal Bridge Requests from Page ====================
-        // Handle connection requests from all_phases.js TerminalBridge
-        if (data.nexusExtension === true) {
-            console.log('[NEXUS Content] Extension request from page:', data.action);
-            
-            switch(data.action) {
-                case 'connect':
-                    // Forward to background for WebSocket connection
-                    chrome.runtime.sendMessage({
-                        type: 'CONNECT_TERMINAL',
-                        url: data.serverUrl,
-                        token: data.token
-                    }, (response) => {
-                        // Send response back to page
-                        window.postMessage({
-                            nexusResponse: true,
-                            success: response?.success || false,
-                            error: response?.error || null
-                        }, '*');
-                    });
-                    break;
-                    
-                case 'disconnect':
-                    chrome.runtime.sendMessage({ type: 'DISCONNECT_TERMINAL' }, (response) => {
-                        window.postMessage({ nexusResponse: true, success: true }, '*');
-                    });
-                    break;
-                    
-                case 'send':
-                    chrome.runtime.sendMessage({
-                        type: 'RELAY_TO_TERMINAL',
-                        data: data.payload
-                    }, (response) => {
-                        if (response?.success === false) {
-                            console.warn('[NEXUS Content] Send failed:', response.error);
-                        }
-                    });
-                    break;
-                    
-                case 'getStatus':
-                    chrome.runtime.sendMessage({ type: 'GET_WS_STATUS' }, (response) => {
-                        window.postMessage({
-                            nexusResponse: true,
-                            type: 'status',
-                            connected: response?.connected || false,
-                            url: response?.url || null
-                        }, '*');
-                    });
-                    break;
-            }
-            return;
-        }
-        
-        // Messages from injected scanner
-        if (data.type === 'NEXUS_TO_EXTENSION') {
-            chrome.runtime.sendMessage(data.payload);
-        }
-        
-        // Scanner status update
-        if (data.type === 'NEXUS_SCANNER_READY') {
-            scannerInjected = true;
-            console.log('[NEXUS Content] Scanner detected as ready');
-        }
-        
-        // Scan results
-        if (data.type === 'NEXUS_SCAN_RESULTS') {
-            scanResults = data.stats || scanResults;
-        }
-    });
-    
     // ==================== Scanner Functions ====================
     function executeScan(scanType, sendResponse) {
+        console.log('[NEXUS Content] executeScan called:', scanType);
+        
         // Send command to injected scanner
         const script = document.createElement('script');
         script.textContent = `
             (function() {
+                console.log('[NEXUS Page] Looking for Scanner...');
                 if (typeof window.Scanner !== 'undefined') {
+                    console.log('[NEXUS Page] Scanner found, running ${scanType} scan');
                     if ('${scanType}' === 'quick') {
                         window.Scanner.quickScan && window.Scanner.quickScan();
                     } else {
                         window.Scanner.deepScan && window.Scanner.deepScan();
                     }
-                    window.postMessage({ type: 'NEXUS_SCAN_RESULTS', stats: window.Scanner.getStats ? window.Scanner.getStats() : {} }, '*');
+                    window.postMessage({ type: 'NEXUS_SCAN_RESULTS', stats: window.Scanner.getStats ? window.Scanner.getStats() : {}, success: true }, '*');
                 } else if (typeof window.runPhase !== 'undefined') {
-                    // Legacy scanner
+                    console.log('[NEXUS Page] Using legacy runPhase');
                     window.runPhase(1);
+                    window.postMessage({ type: 'NEXUS_SCAN_RESULTS', stats: {}, success: true }, '*');
                 } else {
-                    console.warn('[NEXUS] Scanner not found');
+                    console.warn('[NEXUS Page] Scanner not found!');
+                    window.postMessage({ type: 'NEXUS_SCAN_RESULTS', stats: {}, success: false, error: 'Scanner not found' }, '*');
                 }
             })();
         `;
         (document.head || document.documentElement).appendChild(script);
         script.remove();
         
-        // Return success after brief delay
+        // Return success after brief delay 
         setTimeout(() => {
+            console.log('[NEXUS Content] Sending scan response');
             sendResponse({ success: true, stats: scanResults });
         }, 500);
     }

@@ -254,13 +254,20 @@ class NexusPopup {
             type: 'EXECUTE_SCAN',
             scanType: type
         }, (response) => {
+            // Check for chrome errors first
+            const lastError = chrome.runtime.lastError;
+            if (lastError) {
+                this.log('Scan error: ' + lastError.message, 'error');
+                return;
+            }
+            
             if (response?.success) {
                 this.state.stats = response.stats || this.state.stats;
                 this.updateStats();
                 this.log(type + ' scan complete', 'success');
                 this.notify('Scan complete!');
             } else {
-                this.log('Scan failed', 'error');
+                this.log('Scan failed: ' + (response?.error || 'No response'), 'error');
             }
         });
     }
