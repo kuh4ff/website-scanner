@@ -5062,6 +5062,194 @@ const TerminalAI = {
         });
     },
     
+    // ═══════════════════════════════════════════════════════════════════════════
+    // API KEY VALIDATION - Used for browser CSP bypass proxy validation
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    async validateKeyDirect(apiKey, provider) {
+        if (!apiKey) return false;
+        
+        provider = provider?.toLowerCase() || 'groq';
+        
+        const configs = {
+            groq: { 
+                hostname: 'api.groq.com', 
+                path: '/openai/v1/chat/completions', 
+                model: 'llama-3.3-70b-versatile',
+                authHeader: `Bearer ${apiKey}`
+            },
+            openai: { 
+                hostname: 'api.openai.com', 
+                path: '/v1/chat/completions', 
+                model: 'gpt-3.5-turbo',
+                authHeader: `Bearer ${apiKey}`
+            },
+            deepseek: { 
+                hostname: 'api.deepseek.com', 
+                path: '/v1/chat/completions', 
+                model: 'deepseek-chat',
+                authHeader: `Bearer ${apiKey}`
+            },
+            gemini: { 
+                hostname: 'generativelanguage.googleapis.com', 
+                path: `/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, 
+                isGemini: true
+            },
+            anthropic: { 
+                hostname: 'api.anthropic.com', 
+                path: '/v1/messages', 
+                model: 'claude-3-haiku-20240307',
+                authHeader: apiKey,
+                isAnthropic: true
+            },
+            together: { 
+                hostname: 'api.together.xyz', 
+                path: '/v1/chat/completions', 
+                model: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
+                authHeader: `Bearer ${apiKey}`
+            },
+            mistral: { 
+                hostname: 'api.mistral.ai', 
+                path: '/v1/chat/completions', 
+                model: 'mistral-small-latest',
+                authHeader: `Bearer ${apiKey}`
+            },
+            openrouter: { 
+                hostname: 'openrouter.ai', 
+                path: '/api/v1/chat/completions', 
+                model: 'google/gemini-flash-1.5',
+                authHeader: `Bearer ${apiKey}`
+            }
+        };
+        
+        const config = configs[provider];
+        if (!config) {
+            log(`❌ Unknown provider: ${provider}`, 'red');
+            return false;
+        }
+        
+        return new Promise((resolve) => {
+            let data;
+            let headers = { 'Content-Type': 'application/json' };
+            
+            if (config.isGemini) {
+                data = JSON.stringify({
+                    contents: [{ parts: [{ text: 'Say OK' }] }],
+                    generationConfig: { maxOutputTokens: 10 }
+                });
+            } else if (config.isAnthropic) {
+                data = JSON.stringify({
+                    model: config.model,
+                    max_tokens: 10,
+                    messages: [{ role: 'user', content: 'Say OK' }]
+                });
+                headers['x-api-key'] = apiKey;
+                headers['anthropic-version'] = '2023-06-01';
+            } else {
+                data = JSON.stringify({
+                    model: config.model,
+                    messages: [{ role: 'user', content: 'Say OK' }],
+                    max_tokens: 10
+                });
+                headers['Authorization'] = config.authHeader;
+            }
+            
+            const options = {
+                hostname: config.hostname,
+                path: config.path,
+                method: 'POST',
+                headers: headers,
+                timeout: 15000
+            };
+            
+            log(`🔑 Validating ${provider.toUpperCase()} key...`, 'cyan');
+            
+            const req = https.request(options, (res) => {
+                let body = '';
+                res.on('data', chunk => body += chunk);
+                res.on('end', () => {
+                    if (res.statusCode === 200 || res.statusCode === 201) {
+                        log(`✅ ${provider.toUpperCase()} key is VALID`, 'green');
+                        resolve(true);
+                    } else if (res.statusCode === 429) {
+                        // Rate limited but key is valid
+                        log(`⏳ ${provider.toUpperCase()} rate limited but key appears valid`, 'yellow');
+                        resolve(true);
+                    } else if (res.statusCode === 401 || res.statusCode === 403) {
+                        log(`❌ ${provider.toUpperCase()} key is INVALID (auth error)`, 'red');
+                        resolve(false);
+                    } else {
+                        log(`⚠️ ${provider.toUpperCase()} validation uncertain (${res.statusCode})`, 'yellow');
+                        resolve(false);
+                    }
+                });
+            });
+            
+            req.setTimeout(15000, () => {
+                req.destroy();
+                log(`⏱️ ${provider.toUpperCase()} validation timeout`, 'yellow');
+                resolve(false);
+            });
+            
+            req.on('error', (e) => {
+                log(`❌ ${provider.toUpperCase()} validation error: ${e.message}`, 'red');
+                resolve(false);
+            });
+            
+            req.write(data);
+            req.end();
+        });
+    },
+    
+    // Query with specific key (for CSP bypass proxy)
+    async queryWithKey(prompt, provider, apiKey) {
+        const originalKey = this.config.apiKey;
+        const originalProvider = this.config.provider;
+        
+        try {
+            // Temporarily switch to provided key/provider
+            this.config.apiKey = apiKey;
+            this.config.provider = provider;
+            
+            // Call the appropriate query method
+            let response;
+            switch(provider?.toLowerCase()) {
+                case 'gemini':
+                    response = await this.queryGemini(prompt);
+                    break;
+                case 'openai':
+                    response = await this.queryOpenAI(prompt);
+                    break;
+                case 'deepseek':
+                    response = await this.queryDeepSeek(prompt);
+                    break;
+                case 'anthropic':
+                    response = await this.queryAnthropic(prompt);
+                    break;
+                case 'groq':
+                    response = await this.queryGroq(prompt);
+                    break;
+                case 'together':
+                    response = await this.queryTogether(prompt);
+                    break;
+                case 'mistral':
+                    response = await this.queryMistral(prompt);
+                    break;
+                case 'openrouter':
+                    response = await this.queryOpenRouter(prompt);
+                    break;
+                default:
+                    response = await this.queryGroq(prompt);
+            }
+            
+            return response;
+        } finally {
+            // Restore original key/provider
+            this.config.apiKey = originalKey;
+            this.config.provider = originalProvider;
+        }
+    },
+    
     // DeepSeek API
     async queryDeepSeek(prompt) {
         return new Promise((resolve, reject) => {
@@ -8393,6 +8581,83 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                 response: aiResponse,
                 fromTerminalAI: true
             }));
+            break;
+        
+        // AI Proxy Request — Browser sends AI request for terminal to execute (CSP bypass)
+        case 'ai_proxy_request':
+            if (!client.authenticated) return;
+            
+            const proxyProvider = message.provider || 'groq';
+            const proxyApiKey = message.apiKey || TerminalAI.config.apiKey;
+            const proxyPrompt = message.prompt;
+            const proxyRequestId = message.requestId;
+            
+            log(`🔄 AI Proxy Request: ${proxyProvider} (CSP bypass for browser)`, 'magenta');
+            
+            if (!proxyApiKey) {
+                ws.send(JSON.stringify({
+                    type: 'ai_proxy_response',
+                    requestId: proxyRequestId,
+                    success: false,
+                    error: 'No API key available'
+                }));
+                return;
+            }
+            
+            try {
+                // Use terminal's AI to proxy the request
+                const proxyResponse = await TerminalAI.queryWithKey(proxyPrompt, proxyProvider, proxyApiKey);
+                
+                ws.send(JSON.stringify({
+                    type: 'ai_proxy_response',
+                    requestId: proxyRequestId,
+                    success: true,
+                    response: proxyResponse,
+                    provider: proxyProvider,
+                    viaCspBypass: true
+                }));
+                
+                log(`✅ AI Proxy response sent`, 'green');
+            } catch (e) {
+                ws.send(JSON.stringify({
+                    type: 'ai_proxy_response',
+                    requestId: proxyRequestId,
+                    success: false,
+                    error: e.message
+                }));
+            }
+            break;
+        
+        // AI Key Validation — Browser asks terminal to validate API key (CSP bypass)
+        case 'ai_validate_key':
+            if (!client.authenticated) return;
+            
+            const validateProvider = message.provider || 'groq';
+            const validateKey = message.apiKey;
+            const validateRequestId = message.requestId;
+            
+            log(`🔑 Validating API key via terminal proxy: ${validateProvider}`, 'magenta');
+            
+            try {
+                const isValid = await TerminalAI.validateKeyDirect(validateKey, validateProvider);
+                
+                ws.send(JSON.stringify({
+                    type: 'ai_validate_response',
+                    requestId: validateRequestId,
+                    success: isValid,
+                    provider: validateProvider,
+                    message: isValid ? 'Key validated successfully' : 'Key validation failed'
+                }));
+                
+                log(isValid ? `✅ Key validated: ${validateProvider}` : `❌ Key invalid: ${validateProvider}`, isValid ? 'green' : 'red');
+            } catch (e) {
+                ws.send(JSON.stringify({
+                    type: 'ai_validate_response',
+                    requestId: validateRequestId,
+                    success: false,
+                    error: e.message
+                }));
+            }
             break;
         
         // AI Collaboration — Browser AI responding to terminal AI task
