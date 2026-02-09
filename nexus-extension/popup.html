@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-tertiary: #1a1a25;
+            --bg-hover: #252535;
+            --accent: #8b5cf6;
+            --accent-hover: #7c3aed;
+            --accent-glow: rgba(139, 92, 246, 0.3);
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --border: rgba(148, 163, 184, 0.1);
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            width: 380px;
+            min-height: 520px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: 'Segoe UI', -apple-system, sans-serif;
+            font-size: 13px;
+            overflow-x: hidden;
+        }
+        
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, var(--accent), #6366f1);
+            padding: 16px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .header-left { display: flex; align-items: center; gap: 12px; }
+        .logo { font-size: 28px; }
+        .header h1 { font-size: 16px; font-weight: 700; letter-spacing: -0.3px; }
+        .header .version {
+            background: rgba(255,255,255,0.2);
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: 600;
+        }
+        
+        /* Connection Status */
+        .conn-status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+        }
+        .conn-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--danger);
+            box-shadow: 0 0 8px var(--danger);
+            animation: pulse 2s infinite;
+        }
+        .conn-dot.connected {
+            background: var(--success);
+            box-shadow: 0 0 8px var(--success);
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .conn-info { flex: 1; }
+        .conn-title { font-weight: 600; font-size: 12px; }
+        .conn-detail { font-size: 11px; color: var(--text-muted); }
+        
+        /* Tabs */
+        .tabs {
+            display: flex;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            padding: 0 8px;
+        }
+        .tab {
+            flex: 1;
+            padding: 12px 8px;
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+        .tab:hover { color: var(--text-secondary); background: var(--bg-hover); }
+        .tab.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+        }
+        .tab-icon { font-size: 14px; }
+        
+        /* Content */
+        .content { padding: 12px; }
+        .panel { display: none; }
+        .panel.active { display: block; }
+        
+        /* Cards */
+        .card {
+            background: var(--bg-secondary);
+            border-radius: 10px;
+            padding: 14px;
+            margin-bottom: 10px;
+            border: 1px solid var(--border);
+        }
+        .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+        .card-title {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+        }
+        .card-badge {
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            background: var(--accent-glow);
+            color: var(--accent);
+            cursor: pointer;
+            border: none;
+        }
+        .card-badge:hover { background: var(--accent); color: white; }
+        
+        /* Action Buttons Grid */
+        .actions-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        .action-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 16px 10px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .action-btn:hover {
+            background: var(--bg-hover);
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+        .action-btn:active { transform: translateY(0); }
+        .action-btn .icon { font-size: 24px; margin-bottom: 6px; }
+        .action-btn .label { font-size: 11px; font-weight: 600; color: var(--text-secondary); }
+        .action-btn.primary {
+            background: linear-gradient(135deg, var(--accent), #6366f1);
+            border-color: transparent;
+        }
+        .action-btn.primary .label { color: white; }
+        .action-btn.success { border-color: var(--success); }
+        .action-btn.success .icon { filter: hue-rotate(-60deg); }
+        
+        /* Form Elements */
+        .form-group { margin-bottom: 12px; }
+        .form-label {
+            display: block;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+        .form-input {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+        .form-input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+        .form-input::placeholder { color: var(--text-muted); }
+        
+        /* Buttons */
+        .btn {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent), #6366f1);
+            color: white;
+        }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 15px var(--accent-glow); }
+        .btn-success { background: var(--success); color: white; }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-ghost {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+        }
+        .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
+        .btn-row { display: flex; gap: 8px; }
+        .btn-row .btn { flex: 1; }
+        
+        /* Code Block */
+        .code-block {
+            background: #0d1117;
+            border-radius: 8px;
+            padding: 12px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 11px;
+            color: var(--success);
+            position: relative;
+            overflow-x: auto;
+            word-break: break-all;
+            max-height: 80px;
+            overflow-y: auto;
+        }
+        
+        /* Log */
+        .log-container {
+            background: #0d1117;
+            border-radius: 8px;
+            max-height: 120px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 10px;
+        }
+        .log-entry {
+            padding: 4px 10px;
+            border-bottom: 1px solid var(--border);
+        }
+        .log-entry:last-child { border-bottom: none; }
+        .log-entry.success { color: var(--success); }
+        .log-entry.error { color: var(--danger); }
+        .log-entry.info { color: var(--accent); }
+        .log-entry .time { color: var(--text-muted); margin-right: 8px; }
+        
+        /* Toggle Switch */
+        .toggle-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .toggle-row:last-child { border-bottom: none; }
+        .toggle-label { font-size: 12px; color: var(--text-secondary); }
+        .toggle {
+            width: 44px;
+            height: 24px;
+            background: var(--bg-tertiary);
+            border-radius: 12px;
+            position: relative;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .toggle.active { background: var(--accent); }
+        .toggle::after {
+            content: '';
+            position: absolute;
+            width: 18px;
+            height: 18px;
+            background: white;
+            border-radius: 50%;
+            top: 3px;
+            left: 3px;
+            transition: all 0.2s;
+        }
+        .toggle.active::after { left: 23px; }
+        
+        /* Quick Stats */
+        .stats-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        .stat-item {
+            flex: 1;
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 10px;
+            text-align: center;
+        }
+        .stat-value { font-size: 18px; font-weight: 700; color: var(--accent); }
+        .stat-label { font-size: 10px; color: var(--text-muted); }
+        
+        /* Notification */
+        .notification {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 10px 20px;
+            background: var(--success);
+            color: white;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            opacity: 0;
+            transition: opacity 0.3s;
+            z-index: 1000;
+        }
+        .notification.show { opacity: 1; }
+        .notification.error { background: var(--danger); }
+        
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg-primary); }
+        ::-webkit-scrollbar-thumb { background: var(--bg-hover); border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <div class="header-left">
+            <span class="logo">🔌</span>
+            <h1>NEXUS Scanner</h1>
+        </div>
+        <span class="version">v3.0 PRO</span>
+    </div>
+    
+    <!-- Connection Status -->
+    <div class="conn-status">
+        <div class="conn-dot" id="connDot"></div>
+        <div class="conn-info">
+            <div class="conn-title" id="connTitle">Disconnected</div>
+            <div class="conn-detail" id="connDetail">Click inject to start</div>
+        </div>
+    </div>
+    
+    <!-- Tabs -->
+    <div class="tabs">
+        <button class="tab active" data-tab="scanner"><span class="tab-icon">🔍</span>Scanner</button>
+        <button class="tab" data-tab="terminal"><span class="tab-icon">💻</span>Terminal</button>
+        <button class="tab" data-tab="tools"><span class="tab-icon">🛠️</span>Tools</button>
+        <button class="tab" data-tab="settings"><span class="tab-icon">⚙️</span>Settings</button>
+    </div>
+    
+    <div class="content">
+        <!-- Scanner Panel -->
+        <div class="panel active" id="panel-scanner">
+            <div class="stats-row">
+                <div class="stat-item">
+                    <div class="stat-value" id="statFindings">0</div>
+                    <div class="stat-label">Findings</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="statKeys">0</div>
+                    <div class="stat-label">API Keys</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="statTokens">0</div>
+                    <div class="stat-label">Tokens</div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Quick Actions</span>
+                </div>
+                <div class="actions-grid">
+                    <div class="action-btn primary" id="btnInject">
+                        <span class="icon">🚀</span>
+                        <span class="label">Inject Scanner</span>
+                    </div>
+                    <div class="action-btn" id="btnQuickScan">
+                        <span class="icon">⚡</span>
+                        <span class="label">Quick Scan</span>
+                    </div>
+                    <div class="action-btn" id="btnDeepScan">
+                        <span class="icon">🔬</span>
+                        <span class="label">Deep Scan</span>
+                    </div>
+                    <div class="action-btn" id="btnCopyScript">
+                        <span class="icon">📋</span>
+                        <span class="label">Copy Script</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Activity Log</span>
+                    <button class="card-badge" id="btnClearLog">Clear</button>
+                </div>
+                <div class="log-container" id="activityLog">
+                    <div class="log-entry info"><span class="time">--:--</span>Ready</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Terminal Panel -->
+        <div class="panel" id="panel-terminal">
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Terminal Connection</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">WebSocket URL</label>
+                    <input type="text" class="form-input" id="wsUrl" placeholder="wss://xxx.trycloudflare.com" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Auth Token</label>
+                    <input type="password" class="form-input" id="authToken" placeholder="Enter token" />
+                </div>
+                <div class="btn-row">
+                    <button class="btn btn-success" id="btnConnect">🔌 Connect</button>
+                    <button class="btn btn-danger" id="btnDisconnect" style="display:none;">❌ Disconnect</button>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Execute Command</span>
+                </div>
+                <div class="form-group">
+                    <input type="text" class="form-input" id="cmdInput" placeholder="ls -la" />
+                </div>
+                <button class="btn btn-primary" id="btnExec">▶ Execute</button>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Setup Command</span>
+                    <button class="card-badge" id="btnCopyCmd">📋 Copy</button>
+                </div>
+                <div class="code-block" id="terminalCmd">node nexus-terminal.js</div>
+            </div>
+        </div>
+        
+        <!-- Tools Panel -->
+        <div class="panel" id="panel-tools">
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">AI Analysis</span>
+                </div>
+                <div class="form-group">
+                    <input type="text" class="form-input" id="aiQuestion" placeholder="Ask about this page..." />
+                </div>
+                <button class="btn btn-primary" id="btnAskAI">🤖 Ask AI</button>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Analysis Tools</span>
+                </div>
+                <div class="actions-grid">
+                    <div class="action-btn" id="btnAnalyzeStorage">
+                        <span class="icon">💾</span>
+                        <span class="label">Storage</span>
+                    </div>
+                    <div class="action-btn" id="btnAnalyzeCookies">
+                        <span class="icon">🍪</span>
+                        <span class="label">Cookies</span>
+                    </div>
+                    <div class="action-btn" id="btnExportJSON">
+                        <span class="icon">📄</span>
+                        <span class="label">Export JSON</span>
+                    </div>
+                    <div class="action-btn" id="btnExportReport">
+                        <span class="icon">📊</span>
+                        <span class="label">Full Report</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Settings Panel -->
+        <div class="panel" id="panel-settings">
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">GitHub Source</span>
+                    <span class="card-badge">Auto</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Script URL</label>
+                    <input type="text" class="form-input" id="githubUrl" value="https://raw.githubusercontent.com/kuh4ff/website-scanner/refs/heads/main/all_phases.js" />
+                </div>
+                <button class="btn btn-ghost" id="btnRefreshScript">🔄 Refresh from GitHub</button>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Options</span>
+                </div>
+                <div class="toggle-row">
+                    <span class="toggle-label">Auto-inject on click</span>
+                    <div class="toggle" id="toggleAutoInject"></div>
+                </div>
+                <div class="toggle-row">
+                    <span class="toggle-label">Show notifications</span>
+                    <div class="toggle active" id="toggleNotifications"></div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Cache</span>
+                </div>
+                <button class="btn btn-ghost" id="btnClearCache">🗑️ Clear Script Cache</button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="notification" id="notification"></div>
+    <script src="popup.js"></script>
+</body>
+</html>
