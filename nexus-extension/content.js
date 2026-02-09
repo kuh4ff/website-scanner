@@ -322,52 +322,16 @@
     async function executeScan(scanType, sendResponse) {
         console.log('[NEXUS Content] executeScan:', scanType);
 
-        // Try regular scanner first (injected via page script)
         const response = await sendToPage('scan', { type: scanType });
 
         if (response.success) {
             scanResults = response.stats || scanResults;
-            sendResponse({
-                success: response.success,
-                stats: response.stats || scanResults,
-                error: response.error
-            });
-            return;
         }
 
-        // Fallback: Use DOM Scanner (runs in content script context, bypasses ALL CSP)
-        console.log('[NEXUS Content] Regular scanner failed/timeout, using DOM Scanner fallback');
-
-        try {
-            // Check if DOM scanner is available
-            if (window.__NEXUS_DOM_SCANNER_INSTANCE__) {
-                const domResult = await window.__NEXUS_DOM_SCANNER_INSTANCE__.scan(scanType);
-                const findings = window.__NEXUS_DOM_SCANNER_INSTANCE__.getFindings();
-
-                scannerInjected = true; // Mark as injected via DOM scanner
-                scanResults = findings.stats || scanResults;
-
-                console.log('[NEXUS Content] DOM Scanner complete:', findings.stats);
-
-                sendResponse({
-                    success: true,
-                    stats: findings.stats,
-                    data: findings,
-                    method: 'dom-scanner',
-                    cspBypassed: true
-                });
-                return;
-            }
-        } catch (e) {
-            console.error('[NEXUS Content] DOM Scanner error:', e);
-        }
-
-        // Both methods failed
         sendResponse({
-            success: false,
-            stats: scanResults,
-            error: 'Both regular scanner and DOM scanner failed. Try refreshing the page.',
-            needsManualAction: true
+            success: response.success,
+            stats: response.stats || scanResults,
+            error: response.error
         });
     }
 

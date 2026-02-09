@@ -397,12 +397,11 @@ class NexusBackground {
     }
 
     // ==================== Script Injection ====================
-    // Advanced CSP Bypass: Tries multiple methods with chrome-extension:// URL first
-    // This method bypasses ALL CSP policies including strict sites like GitHub
+    // Ultimate CSP Bypass: Loads bundled scanner directly via chrome-extension:// URL
+    // NO eval() or new Function() needed - static file loading bypasses ALL CSP
     async injectScript(tabId, script, sendResponse) {
         try {
-            console.log('[NEXUS] Starting injection (code length:', script.length, ')');
-            const extensionId = chrome.runtime.id;
+            console.log('[NEXUS] Starting injection...');
 
             // Step 1: Set markers in MAIN world
             await chrome.scripting.executeScript({
@@ -417,137 +416,73 @@ class NexusBackground {
             });
 
             // ============================
-            // METHOD 0: chrome-extension:// URL (BYPASSES ALL CSP)
-            // This is the most reliable method - browsers allow their own extension URLs
+            // PRIMARY METHOD: Load bundled scanner via chrome-extension:// URL
+            // This ALWAYS works - browsers allow their own extension URLs regardless of CSP
             // ============================
-            try {
-                const extensionUrl = chrome.runtime.getURL('injected.js');
-                console.log('[NEXUS] Trying chrome-extension:// URL injection:', extensionUrl);
+            const bundledScannerUrl = chrome.runtime.getURL('all_phases_bundled.js');
+            console.log('[NEXUS] Loading bundled scanner:', bundledScannerUrl);
 
-                const extUrlResult = await chrome.scripting.executeScript({
-                    target: { tabId: tabId },
-                    func: (url) => {
-                        return new Promise((resolve) => {
-                            // Listen for loader ready signal
-                            const timeout = setTimeout(() => {
-                                resolve({ success: false, error: 'Loader timeout' });
-                            }, 5000);
+            const loadResult = await chrome.scripting.executeScript({
+                target: { tabId: tabId },
+                func: (url) => {
+                    return new Promise((resolve) => {
+                        // Check if already loaded
+                        if (window.Scanner || window.__NEXUS_SCANNER_LOADED__) {
+                            console.log('%c[NEXUS] Scanner already loaded', 'color: #22c55e');
+                            resolve({ success: true, method: 'already-loaded' });
+                            return;
+                        }
 
-                            const handler = (event) => {
-                                if (event.source !== window) return;
-                                if (event.data?.type === 'NEXUS_LOADER_READY') {
-                                    clearTimeout(timeout);
-                                    window.removeEventListener('message', handler);
-                                    resolve({ success: true, loaderReady: true });
-                                }
-                            };
-                            window.addEventListener('message', handler);
+                        // Set timeout
+                        const timeout = setTimeout(() => {
+                            resolve({ success: false, error: 'Script load timeout' });
+                        }, 10000);
 
-                            // Create script element with chrome-extension:// URL
-                            const script = document.createElement('script');
-                            script.src = url;
-                            script.onload = () => {
-                                console.log('%c[NEXUS] Loader script loaded via extension URL', 'color: #22c55e');
-                            };
-                            script.onerror = (e) => {
-                                clearTimeout(timeout);
-                                window.removeEventListener('message', handler);
-                                resolve({ success: false, error: 'Script load error' });
-                            };
-                            document.head.appendChild(script);
-                        });
-                    },
-                    args: [extensionUrl],
-                    world: 'MAIN'
-                });
+                        // Create script element with chrome-extension:// URL
+                        const script = document.createElement('script');
+                        script.src = url;
 
-                const loaderResult = extUrlResult[0]?.result;
+                        script.onload = () => {
+                            clearTimeout(timeout);
+                            window.__NEXUS_SCANNER_LOADED__ = true;
+                            console.log('%c[NEXUS] Bundled scanner loaded via extension URL!', 'color: #22c55e; font-weight: bold; font-size: 14px');
+                            resolve({ success: true, method: 'extension-url-bundled' });
+                        };
 
-                if (loaderResult?.success && loaderResult?.loaderReady) {
-                    // Loader is ready, now send the actual scanner code
-                    await chrome.scripting.executeScript({
-                        target: { tabId: tabId },
-                        func: (code) => {
-                            window.postMessage({
-                                type: 'NEXUS_INJECT_SCANNER_CODE',
-                                code: code
-                            }, '*');
-                        },
-                        args: [script],
-                        world: 'MAIN'
+                        script.onerror = (e) => {
+                            clearTimeout(timeout);
+                            console.error('[NEXUS] Script load error');
+                            resolve({ success: false, error: 'Script element load failed' });
+                        };
+
+                        (document.head || document.documentElement).appendChild(script);
                     });
+                },
+                args: [bundledScannerUrl],
+                world: 'MAIN'
+            });
 
-                    // Wait for scanner injection confirmation
-                    const injectResult = await chrome.scripting.executeScript({
-                        target: { tabId: tabId },
-                        func: () => {
-                            return new Promise((resolve) => {
-                                const timeout = setTimeout(() => {
-                                    resolve({ success: false, error: 'Scanner injection timeout' });
-                                }, 5000);
+            const primaryResult = loadResult[0]?.result;
 
-                                const handler = (event) => {
-                                    if (event.source !== window) return;
-                                    if (event.data?.type === 'NEXUS_SCANNER_INJECTED') {
-                                        clearTimeout(timeout);
-                                        window.removeEventListener('message', handler);
-                                        resolve(event.data);
-                                    }
-                                };
-                                window.addEventListener('message', handler);
-                            });
-                        },
-                        world: 'MAIN'
-                    });
-
-                    const r = injectResult[0]?.result;
-                    if (r?.success) {
-                        console.log('[NEXUS] Injection complete via chrome-extension:// URL');
-                        this.setupBridge(tabId);
-                        sendResponse({ success: true, method: 'extension-url' });
-                        return;
-                    }
-                }
-            } catch (e) {
-                console.log('[NEXUS] Extension URL method failed:', e.message);
+            if (primaryResult?.success) {
+                console.log('[NEXUS] Injection complete via:', primaryResult.method);
+                this.setupBridge(tabId);
+                sendResponse({ success: true, method: primaryResult.method });
+                return;
             }
 
             // ============================
-            // FALLBACK METHODS: Traditional injection for sites that don't block
+            // FALLBACK: Try dynamic methods for non-strict CSP sites
+            // (These will fail on GitHub but work on most other sites)
             // ============================
+            console.log('[NEXUS] Bundled load failed, trying dynamic methods...');
+
             const result = await chrome.scripting.executeScript({
                 target: { tabId: tabId },
                 func: (code) => {
                     const methods = [];
 
-                    // Method 1: Try Trusted Types policy (for sites that allow custom policies)
-                    if (window.trustedTypes?.createPolicy) {
-                        try {
-                            if (!trustedTypes.defaultPolicy) {
-                                trustedTypes.createPolicy('default', {
-                                    createScript: s => s,
-                                    createScriptURL: s => s
-                                });
-                            }
-                            eval(code);
-                            console.log('%c[NEXUS] Injected via default TT policy', 'color: #22c55e');
-                            return { success: true, method: 'trustedTypes-default' };
-                        } catch (e1) {
-                            methods.push('tt-default:' + e1.message);
-                            try {
-                                const policy = trustedTypes.createPolicy('nexus-' + Date.now(), {
-                                    createScript: s => s
-                                });
-                                eval(policy.createScript(code));
-                                console.log('%c[NEXUS] Injected via custom TT policy', 'color: #22c55e');
-                                return { success: true, method: 'trustedTypes-custom' };
-                            } catch (e2) {
-                                methods.push('tt-custom:' + e2.message);
-                            }
-                        }
-                    }
-
-                    // Method 2: Direct Function constructor
+                    // Method 1: Function constructor
                     try {
                         const fn = new Function(code);
                         fn();
@@ -557,7 +492,7 @@ class NexusBackground {
                         methods.push('function:' + e.message);
                     }
 
-                    // Method 3: Indirect eval
+                    // Method 2: Indirect eval
                     try {
                         (0, eval)(code);
                         console.log('%c[NEXUS] Injected via eval', 'color: #22c55e');
@@ -566,7 +501,7 @@ class NexusBackground {
                         methods.push('eval:' + e.message);
                     }
 
-                    // Method 4: Blob URL
+                    // Method 3: Blob URL
                     try {
                         const blob = new Blob([code], { type: 'application/javascript' });
                         const url = URL.createObjectURL(blob);
@@ -585,7 +520,6 @@ class NexusBackground {
                     return {
                         success: false,
                         error: 'Strict CSP - all methods blocked',
-                        needsManualPaste: true,
                         attempts: methods
                     };
                 },
@@ -600,11 +534,10 @@ class NexusBackground {
                 console.log('[NEXUS] Injection complete via:', r.method);
                 sendResponse({ success: true, method: r.method });
             } else {
-                console.log('[NEXUS] Injection failed - needs manual paste');
+                console.log('[NEXUS] All injection methods failed');
                 sendResponse({
                     success: false,
-                    error: r?.error || 'Injection failed',
-                    needsManualPaste: r?.needsManualPaste || false,
+                    error: r?.error || 'Injection failed - strict CSP site',
                     attempts: r?.attempts
                 });
             }
