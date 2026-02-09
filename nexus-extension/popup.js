@@ -15,7 +15,7 @@ class NexusExtension {
                 autoInject: false,
                 notifications: true,
                 autoSync: false,
-                githubUrl: 'https://raw.githubusercontent.com/kuh4ff/website-scanner/main/all_phases.js',
+                githubUrl: 'https://raw.githubusercontent.com/kuh4ff/website-scanner/main/scripts/all_phases.js', // Default fallback
                 wsUrl: '',
                 authToken: '',
                 aiApiKey: ''
