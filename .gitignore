@@ -1,0 +1,26 @@
+# Logs
+logs.txt
+*.log
+
+# API keys and secrets
+api.txt
+.env
+*.key
+
+# Backup folders
+backup/
+
+# Node modules
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.temp
