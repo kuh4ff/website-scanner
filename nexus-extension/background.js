@@ -397,11 +397,10 @@ class NexusBackground {
     }
 
     // ==================== Script Injection ====================
-    // Ultimate CSP Bypass: Loads bundled scanner directly via chrome-extension:// URL
-    // NO eval() or new Function() needed - static file loading bypasses ALL CSP
+    // Handles Trusted Types CSP with multiple fallback methods
     async injectScript(tabId, script, sendResponse) {
         try {
-            console.log('[NEXUS] Starting injection...');
+            console.log('[NEXUS] Starting injection (code length:', script.length, ')');
 
             // Step 1: Set markers in MAIN world
             await chrome.scripting.executeScript({
@@ -415,74 +414,43 @@ class NexusBackground {
                 world: 'MAIN'
             });
 
-            // ============================
-            // PRIMARY METHOD: Load bundled scanner via chrome-extension:// URL
-            // This ALWAYS works - browsers allow their own extension URLs regardless of CSP
-            // ============================
-            const bundledScannerUrl = chrome.runtime.getURL('all_phases_bundled.js');
-            console.log('[NEXUS] Loading bundled scanner:', bundledScannerUrl);
-
-            const loadResult = await chrome.scripting.executeScript({
-                target: { tabId: tabId },
-                func: (url) => {
-                    return new Promise((resolve) => {
-                        // Check if already loaded
-                        if (window.Scanner || window.__NEXUS_SCANNER_LOADED__) {
-                            console.log('%c[NEXUS] Scanner already loaded', 'color: #22c55e');
-                            resolve({ success: true, method: 'already-loaded' });
-                            return;
-                        }
-
-                        // Set timeout
-                        const timeout = setTimeout(() => {
-                            resolve({ success: false, error: 'Script load timeout' });
-                        }, 10000);
-
-                        // Create script element with chrome-extension:// URL
-                        const script = document.createElement('script');
-                        script.src = url;
-
-                        script.onload = () => {
-                            clearTimeout(timeout);
-                            window.__NEXUS_SCANNER_LOADED__ = true;
-                            console.log('%c[NEXUS] Bundled scanner loaded via extension URL!', 'color: #22c55e; font-weight: bold; font-size: 14px');
-                            resolve({ success: true, method: 'extension-url-bundled' });
-                        };
-
-                        script.onerror = (e) => {
-                            clearTimeout(timeout);
-                            console.error('[NEXUS] Script load error');
-                            resolve({ success: false, error: 'Script element load failed' });
-                        };
-
-                        (document.head || document.documentElement).appendChild(script);
-                    });
-                },
-                args: [bundledScannerUrl],
-                world: 'MAIN'
-            });
-
-            const primaryResult = loadResult[0]?.result;
-
-            if (primaryResult?.success) {
-                console.log('[NEXUS] Injection complete via:', primaryResult.method);
-                this.setupBridge(tabId);
-                sendResponse({ success: true, method: primaryResult.method });
-                return;
-            }
-
-            // ============================
-            // FALLBACK: Try dynamic methods for non-strict CSP sites
-            // (These will fail on GitHub but work on most other sites)
-            // ============================
-            console.log('[NEXUS] Bundled load failed, trying dynamic methods...');
-
+            // Step 2: Try multiple injection methods
             const result = await chrome.scripting.executeScript({
                 target: { tabId: tabId },
                 func: (code) => {
                     const methods = [];
 
-                    // Method 1: Function constructor
+                    // Method 1: Try Trusted Types policy (for sites that allow custom policies)
+                    if (window.trustedTypes?.createPolicy) {
+                        try {
+                            // Try default policy first
+                            if (!trustedTypes.defaultPolicy) {
+                                trustedTypes.createPolicy('default', {
+                                    createScript: s => s,
+                                    createScriptURL: s => s
+                                });
+                            }
+                            eval(code);
+                            console.log('%c[NEXUS] Injected via default TT policy', 'color: #22c55e');
+                            return { success: true, method: 'trustedTypes-default' };
+                        } catch (e1) {
+                            methods.push('tt-default:' + e1.message);
+
+                            // Try custom policy
+                            try {
+                                const policy = trustedTypes.createPolicy('nexus-' + Date.now(), {
+                                    createScript: s => s
+                                });
+                                eval(policy.createScript(code));
+                                console.log('%c[NEXUS] Injected via custom TT policy', 'color: #22c55e');
+                                return { success: true, method: 'trustedTypes-custom' };
+                            } catch (e2) {
+                                methods.push('tt-custom:' + e2.message);
+                            }
+                        }
+                    }
+
+                    // Method 2: Direct Function constructor (works on most sites)
                     try {
                         const fn = new Function(code);
                         fn();
@@ -492,7 +460,7 @@ class NexusBackground {
                         methods.push('function:' + e.message);
                     }
 
-                    // Method 2: Indirect eval
+                    // Method 3: Indirect eval
                     try {
                         (0, eval)(code);
                         console.log('%c[NEXUS] Injected via eval', 'color: #22c55e');
@@ -501,12 +469,26 @@ class NexusBackground {
                         methods.push('eval:' + e.message);
                     }
 
-                    // Method 3: Blob URL
+                    // Method 4: Blob URL script tag (bypasses some CSP)
                     try {
                         const blob = new Blob([code], { type: 'application/javascript' });
                         const url = URL.createObjectURL(blob);
                         const script = document.createElement('script');
-                        script.src = url;
+
+                        // For Trusted Types, we need TrustedScriptURL
+                        if (window.trustedTypes?.createPolicy) {
+                            try {
+                                const urlPolicy = trustedTypes.createPolicy('nexus-url-' + Date.now(), {
+                                    createScriptURL: s => s
+                                });
+                                script.src = urlPolicy.createScriptURL(url);
+                            } catch (e) {
+                                script.src = url;
+                            }
+                        } else {
+                            script.src = url;
+                        }
+
                         document.head.appendChild(script);
                         URL.revokeObjectURL(url);
                         console.log('%c[NEXUS] Injected via Blob URL', 'color: #22c55e');
@@ -515,11 +497,37 @@ class NexusBackground {
                         methods.push('blob:' + e.message);
                     }
 
-                    // All methods failed
+                    // Method 5: Data URL script tag  
+                    try {
+                        const script = document.createElement('script');
+                        const dataUrl = 'data:application/javascript;base64,' + btoa(unescape(encodeURIComponent(code)));
+
+                        if (window.trustedTypes?.createPolicy) {
+                            try {
+                                const urlPolicy = trustedTypes.createPolicy('nexus-data-' + Date.now(), {
+                                    createScriptURL: s => s
+                                });
+                                script.src = urlPolicy.createScriptURL(dataUrl);
+                            } catch (e) {
+                                script.src = dataUrl;
+                            }
+                        } else {
+                            script.src = dataUrl;
+                        }
+
+                        document.head.appendChild(script);
+                        console.log('%c[NEXUS] Injected via Data URL', 'color: #22c55e');
+                        return { success: true, method: 'dataUrl' };
+                    } catch (e) {
+                        methods.push('dataUrl:' + e.message);
+                    }
+
+                    // All methods failed - site has strict Trusted Types that blocks everything
                     console.error('[NEXUS] All injection methods failed:', methods);
                     return {
                         success: false,
-                        error: 'Strict CSP - all methods blocked',
+                        error: 'Strict CSP/Trusted Types - manual paste required',
+                        needsManualPaste: true,
                         attempts: methods
                     };
                 },
@@ -530,14 +538,29 @@ class NexusBackground {
             const r = result[0]?.result;
 
             if (r?.success) {
-                this.setupBridge(tabId);
+                // Setup communication bridge
+                await chrome.scripting.executeScript({
+                    target: { tabId: tabId },
+                    func: () => {
+                        if (!window.__NEXUS_BRIDGE_READY__) {
+                            window.__NEXUS_BRIDGE_READY__ = true;
+                            window.__NEXUS_SEND_TO_EXTENSION__ = (data) => {
+                                window.postMessage({ type: 'NEXUS_TO_EXTENSION', payload: data }, '*');
+                            };
+                            window.postMessage({ type: 'NEXUS_SCANNER_READY' }, '*');
+                        }
+                    },
+                    world: 'MAIN'
+                });
+
                 console.log('[NEXUS] Injection complete via:', r.method);
                 sendResponse({ success: true, method: r.method });
             } else {
-                console.log('[NEXUS] All injection methods failed');
+                console.log('[NEXUS] Injection failed - needs manual paste');
                 sendResponse({
                     success: false,
-                    error: r?.error || 'Injection failed - strict CSP site',
+                    error: r?.error || 'Injection failed',
+                    needsManualPaste: r?.needsManualPaste || false,
                     attempts: r?.attempts
                 });
             }
@@ -546,23 +569,6 @@ class NexusBackground {
             console.error('[NEXUS] Injection error:', e);
             sendResponse({ success: false, error: e.message });
         }
-    }
-
-    // Helper: Setup communication bridge after successful injection
-    async setupBridge(tabId) {
-        await chrome.scripting.executeScript({
-            target: { tabId: tabId },
-            func: () => {
-                if (!window.__NEXUS_BRIDGE_READY__) {
-                    window.__NEXUS_BRIDGE_READY__ = true;
-                    window.__NEXUS_SEND_TO_EXTENSION__ = (data) => {
-                        window.postMessage({ type: 'NEXUS_TO_EXTENSION', payload: data }, '*');
-                    };
-                    window.postMessage({ type: 'NEXUS_SCANNER_READY' }, '*');
-                }
-            },
-            world: 'MAIN'
-        });
     }
 
     // ==================== Get Findings Data ====================
