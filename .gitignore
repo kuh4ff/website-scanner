@@ -1,0 +1,51 @@
+# Logs
+logs.txt
+terminal_logs.txt
+console_logs.txt
+*.log
+nexus-terminal.log
+
+# API keys and secrets
+api.txt
+.env
+.env.local
+.env.production
+*.key
+*.pem
+secrets.json
+
+# Backup folders
+backup/
+backups/
+
+# Node modules
+node_modules/
+package-lock.json
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Temporary files
+*.tmp
+*.temp
+*.cache
+
+# Build outputs
+dist/
+build/
+*.min.js
+
+# Test coverage
+coverage/
+.nyc_output/
