@@ -134,6 +134,7 @@ class NexusBackground {
         this.wsUrl = url;
         this.wsToken = token;
         this.reconnectAttempts = 0;
+        this.responseSent = false;
         
         try {
             this.ws = new WebSocket(url);
@@ -147,6 +148,12 @@ class NexusBackground {
                         type: 'auth',
                         token: token
                     }));
+                } else {
+                    // No token needed, connection is success
+                    if (!this.responseSent) {
+                        this.responseSent = true;
+                        sendResponse({ success: true });
+                    }
                 }
                 
                 // Send any queued messages
@@ -154,22 +161,57 @@ class NexusBackground {
                     const msg = this.messageQueue.shift();
                     this.ws.send(JSON.stringify(msg));
                 }
-                
-                sendResponse({ success: true });
             };
             
             this.ws.onmessage = (event) => {
-                this.handleTerminalMessage(event.data);
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    // Handle auth response
+                    if (data.type === 'auth_success') {
+                        if (!this.responseSent) {
+                            this.responseSent = true;
+                            sendResponse({ success: true });
+                        }
+                    } else if (data.type === 'auth_failed') {
+                        if (!this.responseSent) {
+                            this.responseSent = true;
+                            sendResponse({ success: false, error: 'Authentication failed' });
+                        }
+                        return; // Don't broadcast auth failure
+                    }
+                    
+                    // Broadcast to page
+                    this.handleTerminalMessage(event.data);
+                } catch (e) {
+                    this.handleTerminalMessage(event.data);
+                }
             };
             
             this.ws.onerror = (error) => {
                 console.error('[NEXUS] WebSocket error:', error);
+                if (!this.responseSent) {
+                    this.responseSent = true;
+                    sendResponse({ success: false, error: 'Connection failed' });
+                }
             };
             
             this.ws.onclose = (event) => {
                 console.log('[NEXUS] WebSocket closed:', event.code);
+                if (!this.responseSent) {
+                    this.responseSent = true;
+                    sendResponse({ success: false, error: 'Connection closed' });
+                }
                 this.attemptReconnect();
             };
+            
+            // Timeout for connection
+            setTimeout(() => {
+                if (!this.responseSent) {
+                    this.responseSent = true;
+                    sendResponse({ success: false, error: 'Connection timeout' });
+                }
+            }, 10000);
             
         } catch (e) {
             console.error('[NEXUS] WebSocket connection error:', e);

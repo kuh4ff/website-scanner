@@ -15055,7 +15055,33 @@ window.Scanner = {
         if (format === 'html' && typeof window.fullReport === 'function') return window.fullReport();
         return null;
     },
-    stop: () => window.STOP()
+    stop: () => window.STOP(),
+    
+    // Terminal connection for extension
+    connectTerminal: async (url, token) => {
+        if (typeof window.connectTerminal === 'function') {
+            return await window.connectTerminal(url, token);
+        }
+        return { success: false, error: 'connectTerminal not available' };
+    },
+    disconnectTerminal: () => {
+        if (typeof window.disconnectTerminal === 'function') {
+            window.disconnectTerminal();
+            return { success: true };
+        }
+        return { success: false };
+    },
+    isTerminalConnected: () => {
+        return window.TerminalBridge?.isConnected?.() || false;
+    },
+    
+    // AI methods
+    askAI: async (question) => {
+        if (window.TerminalBridge?.isConnected?.()) {
+            return await window.TerminalBridge._send({ type: 'ai_query', query: question });
+        }
+        return { success: false, error: 'Terminal not connected' };
+    }
 };
 
 // Notify extension that scanner is ready
@@ -24115,6 +24141,22 @@ const TerminalBridge = {
 
 // Export TerminalBridge
 window.TerminalBridge = TerminalBridge;
+
+// ══════════════════════════════════════════════════════════════════════════════
+// EXTENSION MESSAGE LISTENER — Handles messages from Chrome Extension
+// ══════════════════════════════════════════════════════════════════════════════
+window.addEventListener('message', (event) => {
+    if (event.source !== window) return;
+    const data = event.data;
+    if (!data) return;
+    
+    // Handle terminal messages from extension
+    if (data.type === 'NEXUS_FROM_TERMINAL') {
+        if (data.data && window.TerminalBridge) {
+            window.TerminalBridge._handleMessage(data.data);
+        }
+    }
+});
 
 // Easy connect function
 window.connectTerminal = async function(serverUrl, authToken) {

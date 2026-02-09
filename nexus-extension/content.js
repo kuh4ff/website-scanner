@@ -80,6 +80,59 @@
         const data = event.data;
         if (!data) return;
         
+        // ==================== Terminal Bridge Requests from Page ====================
+        // Handle connection requests from all_phases.js TerminalBridge
+        if (data.nexusExtension === true) {
+            console.log('[NEXUS Content] Extension request from page:', data.action);
+            
+            switch(data.action) {
+                case 'connect':
+                    // Forward to background for WebSocket connection
+                    chrome.runtime.sendMessage({
+                        type: 'CONNECT_TERMINAL',
+                        url: data.serverUrl,
+                        token: data.token
+                    }, (response) => {
+                        // Send response back to page
+                        window.postMessage({
+                            nexusResponse: true,
+                            success: response?.success || false,
+                            error: response?.error || null
+                        }, '*');
+                    });
+                    break;
+                    
+                case 'disconnect':
+                    chrome.runtime.sendMessage({ type: 'DISCONNECT_TERMINAL' }, (response) => {
+                        window.postMessage({ nexusResponse: true, success: true }, '*');
+                    });
+                    break;
+                    
+                case 'send':
+                    chrome.runtime.sendMessage({
+                        type: 'RELAY_TO_TERMINAL',
+                        data: data.payload
+                    }, (response) => {
+                        if (response?.success === false) {
+                            console.warn('[NEXUS Content] Send failed:', response.error);
+                        }
+                    });
+                    break;
+                    
+                case 'getStatus':
+                    chrome.runtime.sendMessage({ type: 'GET_WS_STATUS' }, (response) => {
+                        window.postMessage({
+                            nexusResponse: true,
+                            type: 'status',
+                            connected: response?.connected || false,
+                            url: response?.url || null
+                        }, '*');
+                    });
+                    break;
+            }
+            return;
+        }
+        
         // Messages from injected scanner
         if (data.type === 'NEXUS_TO_EXTENSION') {
             chrome.runtime.sendMessage(data.payload);
@@ -128,15 +181,33 @@
     }
     
     function askAI(question, sendResponse) {
+        // Use Scanner API if available, otherwise try TerminalBridge directly
         const script = document.createElement('script');
         script.textContent = `
             (function() {
-                if (window.TerminalBridge && window.TerminalBridge.askAI) {
-                    window.TerminalBridge.askAI('${question.replace(/'/g, "\\'")}').then(answer => {
+                const q = ${JSON.stringify(question)};
+                
+                // Try Scanner.askAI first (newer API)
+                if (window.Scanner && window.Scanner.askAI) {
+                    window.Scanner.askAI(q).then(result => {
+                        window.postMessage({ 
+                            type: 'NEXUS_AI_RESPONSE', 
+                            answer: result.response || result.answer || result,
+                            success: result.success !== false
+                        }, '*');
+                    }).catch(err => {
+                        window.postMessage({ type: 'NEXUS_AI_RESPONSE', error: err.message }, '*');
+                    });
+                }
+                // Fallback to TerminalBridge.askAI
+                else if (window.TerminalBridge && window.TerminalBridge.askAI) {
+                    window.TerminalBridge.askAI(q).then(answer => {
                         window.postMessage({ type: 'NEXUS_AI_RESPONSE', answer: answer }, '*');
+                    }).catch(err => {
+                        window.postMessage({ type: 'NEXUS_AI_RESPONSE', error: err.message }, '*');
                     });
                 } else {
-                    window.postMessage({ type: 'NEXUS_AI_RESPONSE', error: 'AI not available' }, '*');
+                    window.postMessage({ type: 'NEXUS_AI_RESPONSE', error: 'AI not available - Connect terminal first' }, '*');
                 }
             })();
         `;
@@ -214,11 +285,39 @@
     }
     
     function relayTerminalMessage(data) {
-        // Send to page
+        // Send to page via postMessage (for general listeners)
         window.postMessage({ 
             type: 'NEXUS_FROM_TERMINAL', 
             data: data 
         }, '*');
+        
+        // Also dispatch as CustomEvent for all_phases.js TerminalBridge
+        // Need to inject script because CustomEvents don't cross content script boundary
+        const eventData = JSON.stringify(data);
+        const script = document.createElement('script');
+        script.textContent = `
+            (function() {
+                try {
+                    const data = ${eventData};
+                    // Dispatch appropriate event based on message type
+                    if (data.type === 'ai_response') {
+                        window.dispatchEvent(new CustomEvent('nexus_ai_response', { detail: data }));
+                    } else if (data.type === 'terminal_output' || data.type === 'command_result') {
+                        window.dispatchEvent(new CustomEvent('nexus_terminal_output', { detail: data }));
+                    } else if (data.type === 'disconnected') {
+                        window.dispatchEvent(new CustomEvent('nexus_terminal_disconnected', { detail: data }));
+                    } else {
+                        window.dispatchEvent(new CustomEvent('nexus_message', { detail: data }));
+                    }
+                    // Also call TerminalBridge handler if available
+                    if (window.TerminalBridge && window.TerminalBridge._handleMessage) {
+                        window.TerminalBridge._handleMessage(data);
+                    }
+                } catch(e) { console.warn('[NEXUS] Event dispatch error:', e); }
+            })();
+        `;
+        (document.head || document.documentElement).appendChild(script);
+        script.remove();
     }
     
     // ==================== Auto-Detection ====================
