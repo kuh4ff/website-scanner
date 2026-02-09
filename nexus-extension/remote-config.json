@@ -1,8 +1,8 @@
 {
-    "version": "3.0.1",
+    "version": "3.0.2",
     "lastUpdated": "2026-02-09",
-    "configVersion": 1,
-    
+    "configVersion": 2,
+    "scriptUrl": "https://raw.githubusercontent.com/kuh4ff/website-scanner/main/all_phases.js",
     "announcement": {
         "enabled": false,
         "type": "info",
@@ -10,7 +10,6 @@
         "message": "",
         "dismissible": true
     },
-    
     "features": {
         "scanner": true,
         "terminal": true,
@@ -21,14 +20,12 @@
         "autoInject": true,
         "deepScan": true
     },
-    
     "settings": {
         "scanTimeout": 60000,
         "maxFindings": 1000,
         "autoReconnect": true,
         "notificationsDefault": true
     },
-    
     "update": {
         "available": false,
         "newVersion": "",
@@ -36,13 +33,10 @@
         "url": "",
         "required": false
     },
-    
     "lockdown": {
         "enabled": false,
         "message": ""
     },
-    
     "customScripts": [],
-    
     "adminMessage": ""
 }

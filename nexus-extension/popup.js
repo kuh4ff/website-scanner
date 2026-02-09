@@ -129,12 +129,45 @@ class NexusExtension {
         }
     }
 
+    // Sync script URL from GitHub remote config
+    async syncScriptUrl() {
+        this.log('Syncing config from GitHub...', 'info');
+        const btn = document.getElementById('btnSyncScriptUrl');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '⏳';
+
+        try {
+            const response = await new Promise(resolve => {
+                chrome.runtime.sendMessage({ type: 'REFRESH_CONFIG' }, resolve);
+            });
+
+            if (response.success && response.config.scriptUrl) {
+                this.state.settings.githubUrl = response.config.scriptUrl;
+                document.getElementById('githubUrl').value = response.config.scriptUrl;
+                await this.saveSettings();
+                this.log('Configuration synced with GitHub', 'success');
+                this.notify('Synced with GitHub!');
+            } else {
+                throw new Error(response.error || 'No scriptUrl in config');
+            }
+        } catch (e) {
+            this.log('Sync failed: ' + e.message, 'error');
+            this.notify('Sync failed', true);
+        } finally {
+            btn.innerHTML = originalText;
+        }
+    }
+
     // ==================== Storage ====================
     async loadSettings() {
         try {
-            const data = await chrome.storage.local.get(['nexusSettings', 'scriptCache']);
+            const data = await chrome.storage.local.get(['nexusSettings', 'scriptCache', 'remoteConfig']);
             if (data.nexusSettings) {
                 this.state.settings = { ...this.state.settings, ...data.nexusSettings };
+            }
+            // Override with remote config if available
+            if (data.remoteConfig && data.remoteConfig.scriptUrl) {
+                this.state.settings.githubUrl = data.remoteConfig.scriptUrl;
             }
             if (data.scriptCache) {
                 this.state.scriptCache = data.scriptCache;
@@ -242,12 +275,15 @@ class NexusExtension {
         document.getElementById('btnResetAll').addEventListener('click', () => this.resetAll());
 
         // Input saves
-        ['githubUrl', 'wsUrl', 'authToken', 'aiApiKey'].forEach(id => {
+        ['wsUrl', 'authToken', 'aiApiKey'].forEach(id => {
             document.getElementById(id).addEventListener('change', (e) => {
                 this.state.settings[id] = e.target.value;
                 this.saveSettings();
             });
         });
+
+        // GitHub Sync Control
+        document.getElementById('btnSyncScriptUrl').addEventListener('click', () => this.syncScriptUrl());
 
         // All data-cmd buttons
         document.querySelectorAll('[data-cmd]').forEach(btn => {
