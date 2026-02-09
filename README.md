@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/Node.js-18+-339933?style=for-the-badge&logo=node.js&logoColor=white" alt="Node.js">
   <img src="https://img.shields.io/badge/Chrome-Extension-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Chrome">
   <img src="https://img.shields.io/badge/AI-Multi--Model-FF6F61?style=for-the-badge&logo=openai&logoColor=white" alt="AI">
-  <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="License">
+  <img src="https://img.shields.io/badge/License-AGPL%20v3-red?style=for-the-badge" alt="License">
 </p>
 
 <!-- Typing Animation -->
@@ -25,7 +25,8 @@
 [🤖 AI Integration](#-ai-integration) • 
 [💻 Terminal](#-terminal-commander) • 
 [🔍 Scanner](#-scanner-features) • 
-[📖 Docs](#-documentation)
+[📖 Docs](#-documentation) • 
+[🤝 Contribute](#-contributing)
 
 </div>
 
@@ -621,9 +622,32 @@ Options:
 
 ---
 
-## 📄 License
+## 👥 Credits
 
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
+This project is conceived, designed, and developed by **[@kuh4ff](https://github.com/kuh4ff)**.
+
+### 🌟 Lead Developer
+- **[kuh4ff](https://github.com/kuh4ff)** - Core Architecture, Security Engine, AI Integration, Extension
+
+### 🤝 Contributing
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+- � [Report a Bug](https://github.com/kuh4ff/website-scanner/issues)
+- 💡 [Request a Feature](https://github.com/kuh4ff/website-scanner/issues)
+
+---
+
+## �📄 License & Copyright
+
+**Copyright (c) 2024-2026 [kuh4ff](https://github.com/kuh4ff). All Rights Reserved.**
+
+This project is strictly licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
+
+### 🚫 Restrictions
+- You **cannot** use this code in closed-source or proprietary software.
+- You **must** disclose the source code of any modifications you make.
+- You **must** keep all copyright notices and author attributions intact.
+
+See the [LICENSE](LICENSE) file for the full legal text.
 
 ---
 
