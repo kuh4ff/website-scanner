@@ -69,9 +69,106 @@
             case 'TERMINAL_MESSAGE':
                 relayTerminalMessage(msg.data);
                 break;
+            
+            // ==================== Terminal Connection via Page ====================
+            case 'CONNECT_TERMINAL_VIA_PAGE':
+                connectTerminalViaPage(msg.url, msg.token, sendResponse);
+                return true; // Async
+                
+            case 'DISCONNECT_TERMINAL_VIA_PAGE':
+                disconnectTerminalViaPage(sendResponse);
+                return true;
+                
+            case 'TERMINAL_CONNECTED':
+                // Inform page that terminal connected directly (fallback mode)
+                notifyPageTerminalConnected(msg.url);
+                sendResponse({ success: true });
+                break;
         }
         return true;
     });
+    
+    // ==================== Terminal Connection Functions ====================
+    function connectTerminalViaPage(url, token, sendResponse) {
+        const script = document.createElement('script');
+        script.textContent = `
+            (function() {
+                const url = ${JSON.stringify(url)};
+                const token = ${JSON.stringify(token)};
+                
+                // Use connectTerminal if available
+                if (typeof window.connectTerminal === 'function') {
+                    console.log('[NEXUS] Connecting terminal via page...');
+                    window.connectTerminal(url, token).then(() => {
+                        window.postMessage({ type: 'NEXUS_TERMINAL_CONNECT_RESULT', success: true }, '*');
+                    }).catch(err => {
+                        window.postMessage({ type: 'NEXUS_TERMINAL_CONNECT_RESULT', success: false, error: err.message }, '*');
+                    });
+                } else if (window.TerminalBridge && window.TerminalBridge.connect) {
+                    window.TerminalBridge.connect(url, token).then(() => {
+                        window.postMessage({ type: 'NEXUS_TERMINAL_CONNECT_RESULT', success: true }, '*');
+                    }).catch(err => {
+                        window.postMessage({ type: 'NEXUS_TERMINAL_CONNECT_RESULT', success: false, error: err.message }, '*');
+                    });
+                } else {
+                    window.postMessage({ type: 'NEXUS_TERMINAL_CONNECT_RESULT', success: false, error: 'TerminalBridge not available' }, '*');
+                }
+            })();
+        `;
+        (document.head || document.documentElement).appendChild(script);
+        script.remove();
+        
+        // Wait for response from page
+        const handler = (event) => {
+            if (event.data?.type === 'NEXUS_TERMINAL_CONNECT_RESULT') {
+                window.removeEventListener('message', handler);
+                sendResponse(event.data);
+            }
+        };
+        window.addEventListener('message', handler);
+        
+        // Timeout
+        setTimeout(() => {
+            window.removeEventListener('message', handler);
+            sendResponse({ success: false, error: 'Connection timeout' });
+        }, 15000);
+    }
+    
+    function disconnectTerminalViaPage(sendResponse) {
+        const script = document.createElement('script');
+        script.textContent = `
+            (function() {
+                if (typeof window.disconnectTerminal === 'function') {
+                    window.disconnectTerminal();
+                } else if (window.TerminalBridge && window.TerminalBridge.disconnect) {
+                    window.TerminalBridge.disconnect();
+                }
+                window.postMessage({ type: 'NEXUS_TERMINAL_DISCONNECT_RESULT', success: true }, '*');
+            })();
+        `;
+        (document.head || document.documentElement).appendChild(script);
+        script.remove();
+        
+        setTimeout(() => sendResponse({ success: true }), 100);
+    }
+    
+    function notifyPageTerminalConnected(url) {
+        // Update page's TerminalBridge state for direct connection mode
+        const script = document.createElement('script');
+        script.textContent = `
+            (function() {
+                if (window.TerminalBridge) {
+                    window.TerminalBridge.connected = true;
+                    window.TerminalBridge.authenticated = true;
+                    window.TerminalBridge.useExtension = true;
+                    window.TerminalBridge.serverUrl = ${JSON.stringify(url)};
+                    console.log('[NEXUS] TerminalBridge updated: Extension mode active');
+                }
+            })();
+        `;
+        (document.head || document.documentElement).appendChild(script);
+        script.remove();
+    }
     
     // Listen for messages from page (injected script)
     window.addEventListener('message', (event) => {

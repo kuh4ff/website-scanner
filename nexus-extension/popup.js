@@ -275,9 +275,48 @@ class NexusPopup {
             return;
         }
         
+        if (!this.state.scriptLoaded) {
+            this.notify('Inject scanner first!', true);
+            return;
+        }
+        
         this.log('Connecting to terminal...', 'info');
         
-        // Send to background for WebSocket handling
+        // Save settings
+        this.state.settings.wsUrl = url;
+        this.state.settings.authToken = token;
+        this.saveSettings();
+        
+        // Method 1: Tell page to connect via Scanner API (PREFERRED)
+        // This way page's TerminalBridge knows about the connection
+        chrome.tabs.sendMessage(this.state.tabId, {
+            type: 'CONNECT_TERMINAL_VIA_PAGE',
+            url: url,
+            token: token
+        }, (response) => {
+            if (chrome.runtime.lastError) {
+                // Fallback: Connect via background directly
+                this.connectTerminalDirect(url, token);
+                return;
+            }
+            
+            if (response?.success) {
+                this.state.ws = true;
+                document.getElementById('btnConnect').style.display = 'none';
+                document.getElementById('btnDisconnect').style.display = 'flex';
+                this.updateConnectionStatus(true, 'Terminal Connected');
+                this.log('Terminal connected via page', 'success');
+                this.notify('Connected!');
+            } else {
+                // Fallback to direct connection
+                this.log('Page connect failed, trying direct...', 'info');
+                this.connectTerminalDirect(url, token);
+            }
+        });
+    }
+    
+    // Fallback: Direct connection via background
+    connectTerminalDirect(url, token) {
         chrome.runtime.sendMessage({
             type: 'CONNECT_TERMINAL',
             url: url,
@@ -287,9 +326,15 @@ class NexusPopup {
                 this.state.ws = true;
                 document.getElementById('btnConnect').style.display = 'none';
                 document.getElementById('btnDisconnect').style.display = 'flex';
-                this.updateConnectionStatus(true, 'Terminal Connected');
-                this.log('Terminal connected', 'success');
+                this.updateConnectionStatus(true, 'Terminal Connected (Direct)');
+                this.log('Terminal connected directly', 'success');
                 this.notify('Connected!');
+                
+                // Also inform the page about the connection
+                chrome.tabs.sendMessage(this.state.tabId, {
+                    type: 'TERMINAL_CONNECTED',
+                    url: url
+                });
             } else {
                 this.log('Connection failed: ' + (response?.error || 'Unknown'), 'error');
                 this.notify('Connection failed', true);
@@ -298,12 +343,18 @@ class NexusPopup {
     }
     
     disconnectTerminal() {
-        chrome.runtime.sendMessage({ type: 'DISCONNECT_TERMINAL' }, () => {
-            this.state.ws = null;
-            document.getElementById('btnConnect').style.display = 'flex';
-            document.getElementById('btnDisconnect').style.display = 'none';
-            this.updateConnectionStatus(false);
-            this.log('Disconnected', 'info');
+        // First, tell page to disconnect its TerminalBridge
+        chrome.tabs.sendMessage(this.state.tabId, { 
+            type: 'DISCONNECT_TERMINAL_VIA_PAGE' 
+        }, (pageResponse) => {
+            // Also disconnect background.js WebSocket
+            chrome.runtime.sendMessage({ type: 'DISCONNECT_TERMINAL' }, () => {
+                this.state.ws = null;
+                document.getElementById('btnConnect').style.display = 'flex';
+                document.getElementById('btnDisconnect').style.display = 'none';
+                this.updateConnectionStatus(false);
+                this.log('Disconnected', 'info');
+            });
         });
     }
     
