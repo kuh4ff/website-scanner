@@ -464,15 +464,15 @@ class NexusPopup {
     
     async copyScript() {
         try {
-            let script = this.state.scriptCache;
-            if (!script) {
-                script = await this.fetchScript();
-            }
+            this.log('Fetching latest script from GitHub...', 'info');
+            // Always fetch fresh from GitHub for Copy Script
+            const script = await this.fetchScript();
             await navigator.clipboard.writeText(script);
-            this.log('Script copied to clipboard', 'success');
-            this.notify('Script copied!');
+            this.log('Latest script copied to clipboard (' + Math.round(script.length / 1024) + 'KB)', 'success');
+            this.notify('Latest script copied!');
         } catch (e) {
             this.log('Copy error: ' + e.message, 'error');
+            this.notify('Copy failed', true);
         }
     }
     
@@ -649,8 +649,19 @@ class NexusPopup {
             type: 'ASK_AI',
             question: question
         }, (response) => {
-            if (response?.answer) {
-                this.log('AI: ' + response.answer.substring(0, 100) + '...', 'success');
+            if (chrome.runtime.lastError) {
+                this.log('Error: ' + chrome.runtime.lastError.message, 'error');
+                return;
+            }
+            
+            if (response?.success && response?.response) {
+                this.log('AI: ' + String(response.response).substring(0, 200), 'success');
+                this.notify('AI Response received');
+            } else if (response?.error) {
+                this.log('AI Error: ' + response.error, 'error');
+                this.notify('AI: Connect terminal or set AI key', true);
+            } else {
+                this.log('AI: No response - connect terminal first', 'warning');
             }
         });
     }

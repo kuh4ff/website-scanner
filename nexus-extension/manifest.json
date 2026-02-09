@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "NEXUS Scanner Pro",
-  "version": "3.0.1",
-  "description": "Professional security scanner - Auto-injects from GitHub, terminal bridge, AI analysis, Remote Config",
+  "version": "3.0.2",
+  "description": "Professional security scanner - CSP bypass, GitHub sync, terminal bridge, AI, Remote Config",
   "permissions": [
     "activeTab",
     "scripting",

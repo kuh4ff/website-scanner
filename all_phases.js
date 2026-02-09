@@ -1184,6 +1184,12 @@ const NexusEnvironment = (function() {
         
         // Auto-reconnect all with smarter logic
         async autoReconnect() {
+            // Skip if extension is managing connections
+            if (__NEXUS_EXTENSION_MODE__) {
+                console.log('[NEXUS] Auto-reconnect skipped - extension mode active');
+                return;
+            }
+            
             // Check AI first (quick)
             const savedKey = localStorage.getItem('nexus_ai_key');
             if (savedKey && !this.ai.isValidated) {
@@ -15158,6 +15164,144 @@ if (window.__NEXUS_EXTENSION_AVAILABLE__) {
     window.postMessage({ type: 'NEXUS_SCANNER_READY' }, '*');
     console.log('[NEXUS] Scanner ready - Extension mode active');
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// EXTENSION COMMAND LISTENER - CSP-SAFE communication with content.js
+// Handles commands sent via postMessage from extension
+// ══════════════════════════════════════════════════════════════════════════════
+window.addEventListener('message', (event) => {
+    if (event.source !== window) return;
+    const data = event.data;
+    if (!data || data.type !== 'NEXUS_COMMAND') return;
+    
+    const { id, command, args } = data;
+    
+    // Process command and send response
+    (async () => {
+        let response = { type: 'NEXUS_RESPONSE', id: id, success: false };
+        
+        try {
+            switch(command) {
+                case 'ping':
+                    response.success = true;
+                    response.version = '4.0';
+                    break;
+                    
+                case 'scan':
+                    if (args.type === 'quick' && window.Scanner?.quickScan) {
+                        window.Scanner.quickScan();
+                    } else if (window.Scanner?.deepScan) {
+                        window.Scanner.deepScan();
+                    } else if (typeof runPhase === 'function') {
+                        runPhase(1);
+                    }
+                    response.success = true;
+                    response.stats = window.Scanner?.getStats?.() || {};
+                    break;
+                    
+                case 'getStats':
+                    response.success = true;
+                    response.stats = window.Scanner?.getStats?.() || {};
+                    break;
+                    
+                case 'getFindings':
+                    response.success = true;
+                    response.findings = window.Scanner?.getFindings?.() || [];
+                    break;
+                    
+                case 'askAI':
+                    if (window.TerminalBridge?.isConnected?.()) {
+                        const result = await window.TerminalBridge._send({ 
+                            type: 'ai_query', 
+                            query: args.question 
+                        });
+                        response = { ...response, ...result, success: true };
+                    } else if (window.AIAgent?.query) {
+                        const result = await window.AIAgent.query(args.question);
+                        response.success = true;
+                        response.response = result;
+                    } else {
+                        response.error = 'AI not available - connect terminal or set AI key';
+                    }
+                    break;
+                    
+                case 'analyzeStorage':
+                    const storage = {};
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+                        storage[key] = localStorage.getItem(key);
+                    }
+                    response.success = true;
+                    response.data = storage;
+                    response.count = Object.keys(storage).length;
+                    break;
+                    
+                case 'analyzeCookies':
+                    response.success = true;
+                    response.data = document.cookie;
+                    response.count = document.cookie ? document.cookie.split(';').length : 0;
+                    break;
+                    
+                case 'export':
+                    if (window.Scanner?.export) {
+                        window.Scanner.export(args.format || 'json');
+                    } else if (typeof exportResults === 'function') {
+                        exportResults(args.format || 'json');
+                    }
+                    response.success = true;
+                    break;
+                    
+                case 'connectTerminal':
+                    if (window.TerminalBridge?.connect) {
+                        try {
+                            await window.TerminalBridge.connect(args.url, args.token);
+                            response.success = window.TerminalBridge.isConnected?.() || false;
+                        } catch(e) {
+                            response.error = e.message;
+                        }
+                    } else if (typeof connectTerminal === 'function') {
+                        try {
+                            await connectTerminal(args.url, args.token);
+                            response.success = true;
+                        } catch(e) {
+                            response.error = e.message;
+                        }
+                    } else {
+                        response.error = 'TerminalBridge not available';
+                    }
+                    break;
+                    
+                case 'disconnectTerminal':
+                    if (window.TerminalBridge?.disconnect) {
+                        window.TerminalBridge.disconnect();
+                    } else if (typeof disconnectTerminal === 'function') {
+                        disconnectTerminal();
+                    }
+                    response.success = true;
+                    break;
+                    
+                default:
+                    response.error = 'Unknown command: ' + command;
+            }
+        } catch(e) {
+            response.error = e.message;
+            console.error('[NEXUS] Command error:', e);
+        }
+        
+        window.postMessage(response, '*');
+    })();
+});
+
+// Also listen for extension init marker to set the global flag
+window.addEventListener('message', (event) => {
+    if (event.source !== window) return;
+    const data = event.data;
+    if (data?.type === 'NEXUS_EXTENSION_INIT') {
+        window.__NEXUS_EXTENSION_AVAILABLE__ = true;
+        window.__NEXUS_EXTENSION_VERSION__ = data.version || '3.0';
+        console.log('[NEXUS] Extension detected via postMessage:', data.version);
+    }
+});
 
 // ══════════════════════════════════════════════════════════════════════════════
 // PROFESSIONAL BUG HUNTER HELP COMMAND

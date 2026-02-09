@@ -157,27 +157,44 @@ class NexusBackground {
                     window.__NEXUS_EXTENSION_AVAILABLE__ = true;
                     window.__NEXUS_EXTENSION_VERSION__ = '3.0';
                     console.log('[NEXUS] Extension marker set');
-                }
+                },
+                world: 'MAIN' // Execute in page's main world
             });
             
-            // Then inject the main script
+            // Inject the main script in page's MAIN world (CSP bypass)
             await chrome.scripting.executeScript({
                 target: { tabId: tabId },
                 func: (code) => {
                     try {
-                        // Create script element
-                        const script = document.createElement('script');
-                        script.textContent = code;
-                        (document.head || document.documentElement).appendChild(script);
-                        script.remove();
-                        console.log('[NEXUS] Scanner script injected');
+                        // Use Function constructor (works even with CSP)
+                        const fn = new Function(code);
+                        fn();
+                        console.log('[NEXUS] Scanner script injected via Function');
                         return true;
                     } catch (e) {
-                        console.error('[NEXUS] Script injection error:', e);
-                        return false;
+                        // Fallback: Try eval (might work on some sites)
+                        try {
+                            (0, eval)(code);
+                            console.log('[NEXUS] Scanner script injected via eval');
+                            return true;
+                        } catch (e2) {
+                            // Last resort: Script element (may be blocked by CSP)
+                            try {
+                                const script = document.createElement('script');
+                                script.textContent = code;
+                                (document.head || document.documentElement).appendChild(script);
+                                script.remove();
+                                console.log('[NEXUS] Scanner script injected via script element');
+                                return true;
+                            } catch (e3) {
+                                console.error('[NEXUS] All injection methods failed:', e3);
+                                return false;
+                            }
+                        }
                     }
                 },
-                args: [script]
+                args: [script],
+                world: 'MAIN' // CRITICAL: Execute in page's main world, not isolated
             });
             
             // Also inject helper communication
