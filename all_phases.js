@@ -12,6 +12,15 @@
  */
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// GLOBAL EXTENSION MODE CHECK
+// When extension is controlling, all UI is hidden - control via extension popup only
+// ═══════════════════════════════════════════════════════════════════════════════
+const __NEXUS_EXTENSION_MODE__ = window.__NEXUS_EXTENSION_AVAILABLE__ === true;
+if (__NEXUS_EXTENSION_MODE__) {
+    console.log('[NEXUS] 🧩 Extension detected - UI disabled, control via extension popup');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // NEXUS ULTRA SELF-HEALING SYSTEM v2.0
 // PROBLEM SOLVER: API Key Mismatch, Tunnel Expiry, Auto-Reconnection
 // Works on ANY browser, ANY website, bypasses ALL restrictions, FOREVER
@@ -776,6 +785,12 @@ const NexusEnvironment = (function() {
     const UIAdapter = {
         // Create modal that works everywhere
         createModal(content, options = {}) {
+            // Skip modal in extension mode
+            if (__NEXUS_EXTENSION_MODE__) {
+                console.log('[NEXUS] Modal disabled in extension mode');
+                return null;
+            }
+            
             const {
                 title = 'NEXUS',
                 width = '500px',
@@ -893,6 +908,9 @@ const NexusEnvironment = (function() {
         
         // Show notification toast
         toast(message, type = 'info', duration = 3000) {
+            // Skip toast in extension mode - notifications via extension popup
+            if (__NEXUS_EXTENSION_MODE__) return;
+            
             const colors = {
                 info: '#3b82f6',
                 success: '#22c55e',
@@ -2310,9 +2328,9 @@ const NexusEnvironment = (function() {
 
         init() {
             // Skip UI when extension is controlling - everything via extension popup
-            if (window.__NEXUS_EXTENSION_AVAILABLE__) {
+            if (__NEXUS_EXTENSION_MODE__ || window.__NEXUS_EXTENSION_AVAILABLE__) {
                 this.extensionMode = true;
-                console.log('[NEXUS] Extension mode - UI disabled, control via extension popup');
+                // No console log here - already logged at top
                 return;
             }
             if (document.getElementById('nx-root')) return;
@@ -3061,7 +3079,11 @@ const NexusEnvironment = (function() {
         },
 
         startTimer() {
+            // Skip timer updates in extension mode
+            if (this.extensionMode) return;
+            
             setInterval(() => {
+                if (!this.els.timer) return;
                 const elapsed = Date.now() - Vault.stats.startTime;
                 const hours = Math.floor(elapsed / 3600000);
                 const mins = Math.floor((elapsed % 3600000) / 60000);
@@ -3072,6 +3094,9 @@ const NexusEnvironment = (function() {
         },
 
         updateStats() {
+            // Skip in extension mode - stats accessible via Scanner.getStats()
+            if (this.extensionMode || !this.els.stTotal) return;
+            
             this.els.stTotal.textContent = Vault.stats.total;
             this.els.stLive.textContent = Vault.stats.live;
             this.els.stCrit.textContent = Vault.stats.critical;
@@ -3092,6 +3117,9 @@ const NexusEnvironment = (function() {
         },
 
         addToVault(val, entry) {
+            // Skip DOM updates in extension mode - data stored in Vault for API access
+            if (this.extensionMode) return;
+            
             const sev = SEVERITY[entry.severity] || SEVERITY.MEDIUM;
             const isCritical = entry.severity === 'CRITICAL';
             const itemId = `item-${btoa(val).slice(0,20).replace(/[^a-zA-Z0-9]/g, '')}`;
@@ -3128,6 +3156,8 @@ const NexusEnvironment = (function() {
         },
 
         updateVaultItem(val, result) {
+            // Skip DOM updates in extension mode
+            if (this.extensionMode) return;
             const itemId = `item-${btoa(val).slice(0,20).replace(/[^a-zA-Z0-9]/g, '')}`;
             const el = document.getElementById(itemId);
             if (!el) return;
@@ -3189,6 +3219,9 @@ const NexusEnvironment = (function() {
         },
 
         log(type, msg, color = '#818cf8') {
+            // Skip DOM logging in extension mode - data flows via Scanner API
+            if (this.extensionMode || !this.els.pLogs) return;
+            
             const time = new Date().toLocaleTimeString('en-US', { hour12: false });
             const div = document.createElement('div');
             div.className = 'nx-log';
@@ -3205,6 +3238,9 @@ const NexusEnvironment = (function() {
         },
 
         logNetwork(method, url) {
+            // Skip in extension mode
+            if (this.extensionMode || !this.els.pNet) return;
+            
             const div = document.createElement('div');
             div.className = 'nx-log';
             div.style.borderColor = method === 'POST' ? '#f59e0b' : '#3b82f6';
@@ -3219,6 +3255,9 @@ const NexusEnvironment = (function() {
         },
 
         showInfo(info) {
+            // Skip in extension mode
+            if (this.extensionMode || !this.els.pInfo) return;
+            
             this.els.pInfo.innerHTML = safeHTML(`
                 <div class="nx-item">
                     <div class="nx-item-head"><span class="nx-item-type" style="color:#818cf8">🌐 Page Info</span></div>
@@ -9881,6 +9920,9 @@ const AIAgent = {
     },
 
     updateUIStatus() {
+        // Skip UI updates in extension mode
+        if (__NEXUS_EXTENSION_MODE__) return;
+        
         const aiBtn = document.getElementById('btn-ai');
         if (aiBtn) {
             // Clear existing content
@@ -14176,6 +14218,12 @@ function safeSetHTML(element, html) {
 }
 
 function showAIModal() {
+    // Skip modal in extension mode - use extension popup instead
+    if (__NEXUS_EXTENSION_MODE__) {
+        console.log('[NEXUS] AI Modal disabled in extension mode - use extension popup');
+        return;
+    }
+    
     try {
         // Remove existing
         document.getElementById('nx-ai-overlay')?.remove();
@@ -15045,11 +15093,32 @@ window.Scanner = {
         if (typeof window.autoExploit === 'function') window.autoExploit();
         return { success: true };
     },
-    getStats: () => ({
-        findings: (window.__NEXUS__?.Vault?.results?.length || 0),
-        apiKeys: (window.__NEXUS__?.Vault?.apiKeys?.length || 0) + (Object.keys(window.__NEXUS__?.Vault?.liveKeys || {}).length || 0),
-        tokens: (window.__NEXUS__?.Vault?.tokens?.length || 0)
-    }),
+    getStats: () => {
+        const vault = window.__NEXUS__?.Vault;
+        const stats = vault?.stats || {};
+        return {
+            total: stats.total || 0,
+            findings: vault?.secrets?.size || 0,
+            critical: stats.critical || 0,
+            live: stats.live || 0,
+            validated: stats.validated || 0,
+            scans: stats.scans || 0,
+            apiKeys: vault?.apiKeys?.length || 0,
+            tokens: vault?.tokens?.length || 0,
+            exploitable: stats.exploitable || 0
+        };
+    },
+    getFindings: () => {
+        const vault = window.__NEXUS__?.Vault;
+        if (!vault?.secrets) return [];
+        return Array.from(vault.secrets.entries()).map(([value, entry]) => ({
+            value: value.substring(0, 50) + (value.length > 50 ? '...' : ''),
+            type: entry.type,
+            severity: entry.severity,
+            source: entry.source,
+            status: entry.status
+        }));
+    },
     export: (format) => {
         if (format === 'json' && typeof window.exportJSON === 'function') return window.exportJSON();
         if (format === 'html' && typeof window.fullReport === 'function') return window.fullReport();
@@ -16535,21 +16604,23 @@ window.testAI = async () => {
     }
 };
 
-// Override scan button behavior
-setTimeout(() => {
-    const scanBtn = document.getElementById('btn-scan');
-    if (scanBtn) {
-        scanBtn.onclick = () => ScanController.toggle();
-    }
-    
-    const aiBtn = document.getElementById('btn-ai');
-    if (aiBtn) {
-        aiBtn.onclick = () => showAIModal();
-    }
-    
-    // Load saved AI config
-    AIAgent.loadSaved();
-}, 500);
+// Override scan button behavior (only in standalone mode)
+if (!__NEXUS_EXTENSION_MODE__) {
+    setTimeout(() => {
+        const scanBtn = document.getElementById('btn-scan');
+        if (scanBtn) {
+            scanBtn.onclick = () => ScanController.toggle();
+        }
+        
+        const aiBtn = document.getElementById('btn-ai');
+        if (aiBtn) {
+            aiBtn.onclick = () => showAIModal();
+        }
+        
+        // Load saved AI config
+        AIAgent.loadSaved();
+    }, 500);
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // ADVANCED DEEP SCANNER - Scans every corner
@@ -25707,6 +25778,12 @@ window.safeSetHTML = function(element, html) {
 // ══════════════════════════════════════════════════════════════════════════════
 
 window.showTerminalConnectDialog = function() {
+    // Skip dialog in extension mode - use extension popup instead
+    if (__NEXUS_EXTENSION_MODE__) {
+        console.log('[NEXUS] Terminal dialog disabled in extension mode - use extension popup');
+        return;
+    }
+    
     // Remove existing dialog
     const existing = document.getElementById('nexus-terminal-dialog');
     if (existing) existing.remove();
@@ -26533,7 +26610,9 @@ window.envInfo = function() {
 // INITIALIZATION
 // ══════════════════════════════════════════════════════════════════════════════
 
-console.log(`
+// Only show console banner when NOT in extension mode
+if (!__NEXUS_EXTENSION_MODE__) {
+    console.log(`
 %c╔══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗
 %c║                              🎯 NEXUS v4.0 PROFESSIONAL - BUG BOUNTY GRADE SECURITY SCANNER                                                 ║
 %c╠══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╣
@@ -26556,21 +26635,28 @@ console.log(`
 %c║     help()        → 📚 All commands                                                                                                         ║
 %c║                                                                                                                                              ║
 %c╚══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝`,
-'color: #818cf8;', 'color: #818cf8; font-weight: bold;', 'color: #818cf8;',
-'color: #818cf8;',
-'color: #f43f5e; font-weight: bold;',
-'color: #94a3b8;', 'color: #94a3b8;', 'color: #94a3b8;', 'color: #94a3b8;',
-'color: #94a3b8;', 'color: #94a3b8;', 'color: #94a3b8;', 'color: #94a3b8;', 'color: #94a3b8;',
-'color: #818cf8;',
-'color: #22c55e; font-weight: bold;',
-'color: #f59e0b;', 'color: #f59e0b;', 'color: #f59e0b;', 'color: #f59e0b;',
-'color: #818cf8;', 'color: #818cf8;');
+    'color: #818cf8;', 'color: #818cf8; font-weight: bold;', 'color: #818cf8;',
+    'color: #818cf8;',
+    'color: #f43f5e; font-weight: bold;',
+    'color: #94a3b8;', 'color: #94a3b8;', 'color: #94a3b8;', 'color: #94a3b8;',
+    'color: #94a3b8;', 'color: #94a3b8;', 'color: #94a3b8;', 'color: #94a3b8;', 'color: #94a3b8;',
+    'color: #818cf8;',
+    'color: #22c55e; font-weight: bold;',
+    'color: #f59e0b;', 'color: #f59e0b;', 'color: #f59e0b;', 'color: #f59e0b;',
+    'color: #818cf8;', 'color: #818cf8;');
 
-console.log('%c🎯 PRO WORKFLOW: start() → bounty() → bugReport(0) → exportMD()', 'color: #f43f5e; font-weight: bold;');
-console.log('%c⚠️ AUTHORIZED TESTING ONLY - Type disclaimer() to read', 'color: #f59e0b;');
+    console.log('%c🎯 PRO WORKFLOW: start() → bounty() → bugReport(0) → exportMD()', 'color: #f43f5e; font-weight: bold;');
+    console.log('%c⚠️ AUTHORIZED TESTING ONLY - Type disclaimer() to read', 'color: #f59e0b;');
 
-// Update UI status
-AIAgent.updateUIStatus();
+    // Update UI status
+    AIAgent.updateUIStatus();
+}
+
+// Notify extension that scanner is ready
+if (__NEXUS_EXTENSION_MODE__) {
+    window.postMessage({ type: 'NEXUS_SCANNER_READY', version: '4.0' }, '*');
+    console.log('[NEXUS] ✅ Scanner ready - Extension mode active');
+}
 
 
 })();
