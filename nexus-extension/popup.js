@@ -227,6 +227,14 @@ class NexusExtension {
             if (e.key === 'Enter') this.executeTerminalCmd();
         });
 
+        // Remote Terminal Control
+        document.getElementById('btnDeployScript')?.addEventListener('click', () => this.deployTerminalScript());
+        document.getElementById('btnUpdateScript')?.addEventListener('click', () => this.updateTerminalScript());
+        document.getElementById('btnRemoteExec')?.addEventListener('click', () => this.remoteShellExec());
+        document.getElementById('remoteShellCmd')?.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') this.remoteShellExec();
+        });
+
         // Settings page
         document.getElementById('btnRefreshScript').addEventListener('click', () => this.refreshScript());
         document.getElementById('btnCopyScript').addEventListener('click', () => this.copyScript());
@@ -1316,6 +1324,109 @@ class NexusExtension {
 
         document.getElementById('cmdInput').value = '';
         output.scrollTop = output.scrollHeight;
+    }
+
+    // ==================== Remote Terminal Control ====================
+
+    // Deploy nexus-terminal.js from GitHub to terminal
+    async deployTerminalScript() {
+        if (!this.state.terminalConnected) {
+            this.notify('Connect to terminal first!', true);
+            return;
+        }
+
+        this.log('Deploying nexus-terminal.js from GitHub...', 'info');
+        const output = document.getElementById('remoteOutput');
+        output.innerHTML = '<div>📥 Fetching script from GitHub...</div>';
+
+        try {
+            // Fetch script in extension
+            const response = await fetch('https://raw.githubusercontent.com/kuh4ff/website-scanner/main/nexus-terminal.js');
+            if (!response.ok) throw new Error('Fetch failed: ' + response.status);
+            const scriptContent = await response.text();
+
+            output.innerHTML += '<div>✅ Script fetched (' + Math.round(scriptContent.length / 1024) + 'KB)</div>';
+            output.innerHTML += '<div>📤 Sending to terminal...</div>';
+
+            // Send script content to terminal
+            chrome.runtime.sendMessage({
+                type: 'RELAY_TO_TERMINAL',
+                data: {
+                    type: 'deploy_script',
+                    scriptName: 'nexus-terminal.js',
+                    content: scriptContent,
+                    source: 'extension_deploy'
+                }
+            });
+
+            this.log('Script sent to terminal', 'success');
+            this.notify('Script sent to terminal!');
+
+        } catch (e) {
+            output.innerHTML += `<div style="color:red">❌ Error: ${e.message}</div>`;
+            this.log('Deploy failed: ' + e.message, 'error');
+        }
+    }
+
+    // Update terminal script from GitHub
+    async updateTerminalScript() {
+        if (!this.state.terminalConnected) {
+            this.notify('Connect to terminal first!', true);
+            return;
+        }
+
+        this.log('Updating terminal script from GitHub...', 'info');
+        const output = document.getElementById('remoteOutput');
+        output.innerHTML = '<div>🔄 Updating script...</div>';
+
+        // Just download new version, let user restart manually
+        const updateCmd = `curl -sL https://raw.githubusercontent.com/kuh4ff/website-scanner/main/nexus-terminal.js -o nexus-terminal.js && echo "✅ Updated! Run 'node nexus-terminal.js' to restart"`;
+
+        chrome.runtime.sendMessage({
+            type: 'RELAY_TO_TERMINAL',
+            data: {
+                type: 'shell_exec',
+                command: updateCmd,
+                source: 'extension_update'
+            }
+        });
+
+        output.innerHTML += '<div>📤 Update command sent</div>';
+        this.log('Update command sent', 'success');
+        this.notify('Update command sent!');
+    }
+
+    // Execute remote shell command on terminal
+    async remoteShellExec() {
+        const cmd = document.getElementById('remoteShellCmd').value.trim();
+        if (!cmd) {
+            this.notify('Enter a command', true);
+            return;
+        }
+
+        if (!this.state.terminalConnected) {
+            this.notify('Connect to terminal first!', true);
+            return;
+        }
+
+        this.log('Executing remote: ' + cmd, 'info');
+        const output = document.getElementById('remoteOutput');
+        output.innerHTML += `<div style="color: #8b5cf6;">$ ${this.escapeHtml(cmd)}</div>`;
+
+        // Send shell command to terminal
+        chrome.runtime.sendMessage({
+            type: 'RELAY_TO_TERMINAL',
+            data: {
+                type: 'shell_exec',
+                command: cmd,
+                source: 'extension_remote'
+            }
+        });
+
+        // Clear input
+        document.getElementById('remoteShellCmd').value = '';
+        output.scrollTop = output.scrollHeight;
+        this.log('Remote command sent', 'success');
     }
 
     // ==================== UI Updates ====================
