@@ -1,0 +1,48 @@
+{
+    "version": "3.0.1",
+    "lastUpdated": "2026-02-09",
+    "configVersion": 1,
+    
+    "announcement": {
+        "enabled": false,
+        "type": "info",
+        "title": "",
+        "message": "",
+        "dismissible": true
+    },
+    
+    "features": {
+        "scanner": true,
+        "terminal": true,
+        "aiAssistant": true,
+        "exportTools": true,
+        "cookieAnalyzer": true,
+        "storageAnalyzer": true,
+        "autoInject": true,
+        "deepScan": true
+    },
+    
+    "settings": {
+        "scanTimeout": 60000,
+        "maxFindings": 1000,
+        "autoReconnect": true,
+        "notificationsDefault": true
+    },
+    
+    "update": {
+        "available": false,
+        "newVersion": "",
+        "changelog": "",
+        "url": "",
+        "required": false
+    },
+    
+    "lockdown": {
+        "enabled": false,
+        "message": ""
+    },
+    
+    "customScripts": [],
+    
+    "adminMessage": ""
+}

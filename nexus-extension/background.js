@@ -1,6 +1,6 @@
 /**
  * NEXUS Scanner Pro v3.0 - Background Service Worker
- * Handles WebSocket, Script Injection, and Message Relay
+ * Handles WebSocket, Script Injection, Message Relay, and Remote Config
  */
 
 class NexusBackground {
@@ -11,6 +11,9 @@ class NexusBackground {
         this.reconnectAttempts = 0;
         this.maxReconnect = 5;
         this.messageQueue = [];
+        this.remoteConfig = null;
+        this.configUrl = 'https://raw.githubusercontent.com/kuh4ff/website-scanner/main/nexus-extension/remote-config.json';
+        this.configFetchInterval = 5 * 60 * 1000; // 5 minutes
         this.init();
     }
     
@@ -24,9 +27,67 @@ class NexusBackground {
         // Handle extension install/update
         chrome.runtime.onInstalled.addListener((details) => {
             console.log('[NEXUS] Extension installed:', details.reason);
+            this.fetchRemoteConfig(); // Fetch config immediately on install
         });
         
+        // Fetch remote config on startup
+        this.fetchRemoteConfig();
+        
+        // Set up periodic config fetch
+        this.startConfigSync();
+        
         console.log('[NEXUS] Background service worker started');
+    }
+    
+    // ==================== Remote Config System ====================
+    async fetchRemoteConfig() {
+        try {
+            const response = await fetch(this.configUrl + '?t=' + Date.now(), {
+                cache: 'no-store'
+            });
+            
+            if (!response.ok) {
+                throw new Error('Config fetch failed: ' + response.status);
+            }
+            
+            const config = await response.json();
+            this.remoteConfig = config;
+            
+            // Store in chrome.storage for popup access
+            await chrome.storage.local.set({ 
+                remoteConfig: config,
+                configLastFetch: Date.now()
+            });
+            
+            console.log('[NEXUS] Remote config updated:', config.version);
+            
+            // Notify all extension views about config update
+            chrome.runtime.sendMessage({ 
+                type: 'CONFIG_UPDATED', 
+                config: config 
+            }).catch(() => {}); // Ignore if no listeners
+            
+            return config;
+        } catch (e) {
+            console.error('[NEXUS] Config fetch error:', e);
+            // Try to load from storage
+            const stored = await chrome.storage.local.get('remoteConfig');
+            if (stored.remoteConfig) {
+                this.remoteConfig = stored.remoteConfig;
+            }
+            return this.remoteConfig;
+        }
+    }
+    
+    startConfigSync() {
+        // Use chrome.alarms for background sync (service workers can't use setInterval persistently)
+        chrome.alarms.create('configSync', { periodInMinutes: 5 });
+        
+        chrome.alarms.onAlarm.addListener((alarm) => {
+            if (alarm.name === 'configSync') {
+                this.fetchRemoteConfig();
+            }
+        });
     }
     
     handleMessage(msg, sender, sendResponse) {
@@ -58,10 +119,31 @@ class NexusBackground {
                     url: this.wsUrl 
                 });
                 break;
+            
+            case 'GET_REMOTE_CONFIG':
+                this.getRemoteConfig(sendResponse);
+                break;
+            
+            case 'REFRESH_CONFIG':
+                this.fetchRemoteConfig().then(config => {
+                    sendResponse({ success: true, config });
+                }).catch(e => {
+                    sendResponse({ success: false, error: e.message });
+                });
+                break;
                 
             default:
                 console.log('[NEXUS] Unknown message type:', msg.type);
                 sendResponse({ error: 'Unknown message type' });
+        }
+    }
+    
+    async getRemoteConfig(sendResponse) {
+        if (this.remoteConfig) {
+            sendResponse({ success: true, config: this.remoteConfig });
+        } else {
+            const config = await this.fetchRemoteConfig();
+            sendResponse({ success: true, config: config || null });
         }
     }
     

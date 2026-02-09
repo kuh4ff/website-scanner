@@ -1,6 +1,6 @@
 /**
  * NEXUS Scanner Pro v3.0 - Popup Controller
- * Complete Remote Control System
+ * Complete Remote Control System with Remote Config
  */
 
 class NexusPopup {
@@ -11,6 +11,7 @@ class NexusPopup {
             scriptLoaded: false,
             scriptCache: null,
             ws: null,
+            remoteConfig: null,
             settings: {
                 autoInject: false,
                 notifications: true,
@@ -25,11 +26,256 @@ class NexusPopup {
     
     async init() {
         await this.loadSettings();
+        await this.loadRemoteConfig();
         this.setupTabs();
         this.setupActions();
         this.getActiveTab();
         this.updateUI();
+        this.applyRemoteConfig();
         this.log('Extension ready', 'info');
+        
+        // Listen for config updates from background
+        chrome.runtime.onMessage.addListener((msg) => {
+            if (msg.type === 'CONFIG_UPDATED') {
+                this.state.remoteConfig = msg.config;
+                this.applyRemoteConfig();
+            }
+        });
+    }
+    
+    // ==================== Remote Config ====================
+    async loadRemoteConfig() {
+        try {
+            // First try to get from storage (cached)
+            const stored = await chrome.storage.local.get(['remoteConfig', 'configLastFetch']);
+            if (stored.remoteConfig) {
+                this.state.remoteConfig = stored.remoteConfig;
+            }
+            
+            // Then request fresh config from background
+            chrome.runtime.sendMessage({ type: 'GET_REMOTE_CONFIG' }, (response) => {
+                if (response?.config) {
+                    this.state.remoteConfig = response.config;
+                    this.applyRemoteConfig();
+                }
+            });
+        } catch (e) {
+            console.error('Load remote config error:', e);
+        }
+    }
+    
+    applyRemoteConfig() {
+        const config = this.state.remoteConfig;
+        if (!config) return;
+        
+        // Check lockdown
+        if (config.lockdown?.enabled) {
+            this.showLockdown(config.lockdown.message);
+            return;
+        }
+        
+        // Show announcement
+        if (config.announcement?.enabled) {
+            this.showAnnouncement(config.announcement);
+        } else {
+            this.hideAnnouncement();
+        }
+        
+        // Show update notice
+        if (config.update?.available) {
+            this.showUpdateNotice(config.update);
+        }
+        
+        // Apply feature toggles
+        this.applyFeatureToggles(config.features);
+        
+        // Show admin message
+        if (config.adminMessage) {
+            this.log('📢 Admin: ' + config.adminMessage, 'info');
+        }
+    }
+    
+    showAnnouncement(announcement) {
+        let banner = document.getElementById('announcementBanner');
+        if (!banner) {
+            banner = document.createElement('div');
+            banner.id = 'announcementBanner';
+            banner.className = 'announcement-banner';
+            document.querySelector('.conn-status').after(banner);
+        }
+        
+        const typeColors = {
+            info: 'var(--accent)',
+            success: 'var(--success)',
+            warning: 'var(--warning)',
+            error: 'var(--danger)'
+        };
+        
+        const typeIcons = {
+            info: 'ℹ️',
+            success: '✅',
+            warning: '⚠️',
+            error: '🚫'
+        };
+        
+        banner.style.cssText = `
+            padding: 10px 16px;
+            background: ${typeColors[announcement.type] || typeColors.info}15;
+            border-left: 3px solid ${typeColors[announcement.type] || typeColors.info};
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        `;
+        
+        banner.innerHTML = `
+            <span>${typeIcons[announcement.type] || '📢'}</span>
+            <div style="flex:1">
+                ${announcement.title ? '<strong style="display:block;font-size:11px;">' + announcement.title + '</strong>' : ''}
+                <span style="font-size:11px;color:var(--text-secondary);">${announcement.message}</span>
+            </div>
+            ${announcement.dismissible ? '<button id="dismissAnnouncement" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;">×</button>' : ''}
+        `;
+        
+        if (announcement.dismissible) {
+            document.getElementById('dismissAnnouncement')?.addEventListener('click', () => {
+                banner.style.display = 'none';
+            });
+        }
+    }
+    
+    hideAnnouncement() {
+        const banner = document.getElementById('announcementBanner');
+        if (banner) banner.style.display = 'none';
+    }
+    
+    showUpdateNotice(update) {
+        let notice = document.getElementById('updateNotice');
+        if (!notice) {
+            notice = document.createElement('div');
+            notice.id = 'updateNotice';
+            document.querySelector('.header').after(notice);
+        }
+        
+        notice.style.cssText = `
+            padding: 8px 16px;
+            background: linear-gradient(135deg, var(--success), #059669);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        `;
+        
+        notice.innerHTML = `
+            <span style="font-size:11px;font-weight:600;">
+                🎉 Update Available: v${update.newVersion}
+            </span>
+            ${update.url ? '<a href="' + update.url + '" target="_blank" style="color:white;font-size:10px;font-weight:600;text-decoration:underline;">Update Now</a>' : ''}
+        `;
+    }
+    
+    showLockdown(message) {
+        document.body.innerHTML = `
+            <div style="
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                height: 100vh;
+                background: var(--bg-primary);
+                color: var(--text-primary);
+                text-align: center;
+                padding: 30px;
+            ">
+                <div style="font-size: 48px; margin-bottom: 20px;">🔒</div>
+                <h2 style="margin-bottom: 10px; color: var(--danger);">Extension Locked</h2>
+                <p style="color: var(--text-secondary); font-size: 12px;">${message || 'This extension has been temporarily disabled by the administrator.'}</p>
+            </div>
+        `;
+    }
+    
+    applyFeatureToggles(features) {
+        if (!features) return;
+        
+        // Disable/enable buttons based on features
+        const featureMap = {
+            scanner: ['btnInject', 'btnQuickScan', 'btnDeepScan'],
+            terminal: ['btnConnect', 'btnDisconnect', 'btnExec'],
+            aiAssistant: ['btnAskAI'],
+            exportTools: ['btnExportJSON', 'btnExportReport'],
+            cookieAnalyzer: ['btnAnalyzeCookies'],
+            storageAnalyzer: ['btnAnalyzeStorage'],
+            deepScan: ['btnDeepScan']
+        };
+        
+        for (const [feature, btnIds] of Object.entries(featureMap)) {
+            const enabled = features[feature] !== false;
+            btnIds.forEach(id => {
+                const btn = document.getElementById(id);
+                if (btn) {
+                    btn.disabled = !enabled;
+                    btn.style.opacity = enabled ? '1' : '0.4';
+                    btn.title = enabled ? '' : 'Feature disabled by admin';
+                }
+            });
+        }
+        
+        // Update config UI
+        this.updateConfigUI();
+    }
+    
+    updateConfigUI() {
+        const config = this.state.remoteConfig;
+        if (!config) return;
+        
+        const versionEl = document.getElementById('configVersion');
+        const lastUpdateEl = document.getElementById('configLastUpdate');
+        const statusEl = document.getElementById('configStatus');
+        
+        if (versionEl) versionEl.textContent = config.version || '-';
+        if (lastUpdateEl) lastUpdateEl.textContent = config.lastUpdated || '-';
+        if (statusEl) {
+            statusEl.textContent = 'Synced';
+            statusEl.style.background = 'var(--success)';
+        }
+    }
+    
+    async syncConfig() {
+        const btn = document.getElementById('btnSyncConfig');
+        const statusEl = document.getElementById('configStatus');
+        
+        btn.disabled = true;
+        btn.textContent = '🔄 Syncing...';
+        if (statusEl) {
+            statusEl.textContent = 'Syncing';
+            statusEl.style.background = 'var(--warning)';
+        }
+        
+        try {
+            await new Promise((resolve, reject) => {
+                chrome.runtime.sendMessage({ type: 'REFRESH_CONFIG' }, (response) => {
+                    if (response?.success) {
+                        this.state.remoteConfig = response.config;
+                        this.applyRemoteConfig();
+                        this.log('Config synced: v' + (response.config?.version || '?'), 'success');
+                        this.notify('Config synced!');
+                        resolve();
+                    } else {
+                        reject(new Error(response?.error || 'Sync failed'));
+                    }
+                });
+            });
+        } catch (e) {
+            this.log('Sync error: ' + e.message, 'error');
+            this.notify('Sync failed', true);
+            if (statusEl) {
+                statusEl.textContent = 'Error';
+                statusEl.style.background = 'var(--danger)';
+            }
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '🔄 Sync Config Now';
+        }
     }
     
     // ==================== Storage ====================
@@ -106,6 +352,7 @@ class NexusPopup {
         // Settings Actions
         document.getElementById('btnRefreshScript').addEventListener('click', () => this.refreshScript());
         document.getElementById('btnClearCache').addEventListener('click', () => this.clearCache());
+        document.getElementById('btnSyncConfig').addEventListener('click', () => this.syncConfig());
         
         // Toggles
         document.getElementById('toggleAutoInject').addEventListener('click', (e) => {
