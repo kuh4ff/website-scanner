@@ -165,10 +165,15 @@ class NexusExtension {
             if (data.nexusSettings) {
                 this.state.settings = { ...this.state.settings, ...data.nexusSettings };
             }
-            // Override with remote config if available
-            if (data.remoteConfig && data.remoteConfig.scriptUrl) {
-                this.state.settings.githubUrl = data.remoteConfig.scriptUrl;
+
+            // Check remote features (Announcement / Lockdown)
+            if (data.remoteConfig) {
+                if (data.remoteConfig.scriptUrl) {
+                    this.state.settings.githubUrl = data.remoteConfig.scriptUrl;
+                }
+                this.checkRemoteFeatures(data.remoteConfig);
             }
+
             if (data.scriptCache) {
                 this.state.scriptCache = data.scriptCache;
             }
@@ -183,6 +188,43 @@ class NexusExtension {
             if (this.state.settings.autoSync) document.getElementById('toggleAutoSync').classList.add('active');
         } catch (e) {
             console.error('Load settings error:', e);
+        }
+    }
+
+    checkRemoteFeatures(config) {
+        if (!config) return;
+
+        // Announcement
+        if (config.announcement && config.announcement.enabled) {
+            const banner = document.getElementById('remote-announcement');
+            const text = document.getElementById('announcement-text');
+            const close = document.getElementById('announcement-close');
+
+            if (banner && text) {
+                text.textContent = config.announcement.message || config.announcement.title;
+                banner.style.display = 'block';
+                banner.style.backgroundColor = config.announcement.type === 'error' ? '#ef4444' :
+                    config.announcement.type === 'warning' ? '#f59e0b' : '#3b82f6';
+
+                if (close) {
+                    if (config.announcement.dismissible) {
+                        close.style.display = 'block';
+                        close.onclick = () => { banner.style.display = 'none'; };
+                    } else {
+                        close.style.display = 'none';
+                    }
+                }
+            }
+        }
+
+        // Lockdown
+        if (config.lockdown && config.lockdown.enabled) {
+            const overlay = document.getElementById('lockdown-overlay');
+            const msg = document.getElementById('lockdown-message');
+            if (overlay) {
+                if (msg && config.lockdown.message) msg.textContent = config.lockdown.message;
+                overlay.style.display = 'flex';
+            }
         }
     }
 

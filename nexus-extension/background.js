@@ -409,7 +409,8 @@ class NexusBackground {
                     window.__NEXUS_EXTENSION_AVAILABLE__ = true;
                     window.__NEXUS_EXTENSION_VERSION__ = '5.0';
                     window.__NEXUS_EXTENSION_MODE__ = true;
-                    console.log('%c[NEXUS] Extension markers set', 'color: #22c55e; font-weight: bold');
+                    window.__NEXUS_GUARD_TOKEN__ = 'nexus-secure-entry';
+                    console.log('%c[NEXUS] Extension markers and security token set', 'color: #22c55e; font-weight: bold');
                 },
                 world: 'MAIN'
             });

@@ -879,6 +879,21 @@
 </head>
 
 <body>
+    <div id="remote-announcement"
+        style="display: none; background: #3b82f6; color: white; padding: 10px; text-align: center; font-weight: bold; font-size: 13px; position: relative; z-index: 1000; border-bottom: 1px solid rgba(255,255,255,0.1);">
+        <span id="announcement-text"></span>
+        <span id="announcement-close"
+            style="float: right; cursor: pointer; margin-left: 10px; font-size: 16px; line-height: 14px;">&times;</span>
+    </div>
+    <div id="lockdown-overlay"
+        style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(10, 10, 15, 0.98); z-index: 9999; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 30px;">
+        <div style="font-size: 50px; margin-bottom: 20px;">🔒</div>
+        <h2
+            style="color: #ef4444; margin-bottom: 15px; font-size: 24px; text-transform: uppercase; letter-spacing: 1px;">
+            Extension Locked</h2>
+        <p id="lockdown-message" style="color: #94a3b8; line-height: 1.6; font-size: 14px; max-width: 300px;">
+            Administrative Lockdown in effect.</p>
+    </div>
     <!-- Header -->
     <div class="header">
         <div class="header-left">
