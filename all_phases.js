@@ -9765,6 +9765,19 @@ ALL FINDINGS (${report.allFindings.length} total)
                 // Worker failed
             }
 
+            // Method 4: Extension proxy (background.js - CSP immune)
+            try {
+                console.log('%c🔄 Trying extension proxy bypass...', 'color: #818cf8;');
+                const extResult = await this.extensionProxyFetch(url, options);
+                if (extResult.success) {
+                    this.cspBypass.currentMethod = 'extension';
+                    console.log('%c✅ Extension proxy bypass successful!', 'color: #22c55e;');
+                    return extResult;
+                }
+            } catch (e) {
+                // Extension proxy failed
+            }
+
             return { success: false, error: 'All CSP bypass methods failed' };
         },
 
@@ -9800,6 +9813,84 @@ ALL FINDINGS (${report.allFindings.length} total)
                     provider: this.config.provider,
                     apiKey: this.config.apiKey
                 });
+            });
+        },
+
+        // Method 4: Extension Proxy - Route AI requests via extension background.js (CSP immune)
+        async extensionProxyValidate() {
+            if (!window.__NEXUS_EXTENSION_AVAILABLE__ && !document.querySelector('[data-nexus-extension]')) {
+                // Check if extension content script is listening
+                return new Promise((resolve) => {
+                    const requestId = `validate_ext_${Date.now()}`;
+                    const timeout = setTimeout(() => {
+                        window.removeEventListener('message', handler);
+                        resolve(false);
+                    }, 10000);
+
+                    const handler = (event) => {
+                        if (event.data?.nexusResponse && event.data?.type === 'aiValidation' && event.data?.requestId === requestId) {
+                            clearTimeout(timeout);
+                            window.removeEventListener('message', handler);
+                            if (event.data.valid) {
+                                this.config.isValidated = true;
+                                console.log('%c✅ Validated via extension proxy (CSP bypassed)', 'color: #22c55e;');
+                            }
+                            resolve(event.data.valid || false);
+                        }
+                    };
+
+                    window.addEventListener('message', handler);
+
+                    window.postMessage({
+                        nexusExtension: true,
+                        action: 'aiValidate',
+                        requestId: requestId,
+                        provider: this.config.provider,
+                        apiKey: this.config.apiKey
+                    }, '*');
+                });
+            }
+            return false;
+        },
+
+        // Extension proxy fetch - route API calls via extension background.js
+        async extensionProxyFetch(url, options) {
+            return new Promise((resolve) => {
+                const requestId = `ai_ext_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+                const timeout = setTimeout(() => {
+                    window.removeEventListener('message', handler);
+                    resolve({ success: false, error: 'Extension proxy timeout' });
+                }, 60000);
+
+                const handler = (event) => {
+                    if (event.data?.nexusResponse && event.data?.type === 'aiResponse' && event.data?.requestId === requestId) {
+                        clearTimeout(timeout);
+                        window.removeEventListener('message', handler);
+                        if (event.data.success) {
+                            resolve({
+                                success: true,
+                                response: {
+                                    ok: true,
+                                    status: 200,
+                                    json: async () => event.data.data,
+                                    text: async () => JSON.stringify(event.data.data)
+                                }
+                            });
+                        } else {
+                            resolve({ success: false, error: event.data.error });
+                        }
+                    }
+                };
+
+                window.addEventListener('message', handler);
+
+                window.postMessage({
+                    nexusExtension: true,
+                    action: 'aiCall',
+                    requestId: requestId,
+                    url: url,
+                    options: options
+                }, '*');
             });
         },
 
@@ -9998,7 +10089,7 @@ ALL FINDINGS (${report.allFindings.length} total)
             return 'gemini';
         },
 
-        async init(apiKey, forceProvider = null) {
+        async init(apiKey, forceProvider = null, skipValidation = false) {
             if (!apiKey || apiKey.length < 10) {
                 console.log('%c❌ Invalid API Key', 'color: #f43f5e; font-weight: bold;');
                 return false;
@@ -10032,6 +10123,29 @@ ALL FINDINGS (${report.allFindings.length} total)
             if (window.__NEXUS_KEY_ROUTER__?.diagnoseKey) {
                 const analysis = window.__NEXUS_KEY_ROUTER__.diagnoseKey(apiKey);
                 console.log(`%c🔍 Key Analysis: ${analysis.icon} ${analysis.providerName}`, 'color: #818cf8;');
+            }
+
+            // Skip validation if extension already validated via background.js
+            if (skipValidation) {
+                this.config.isValidated = true;
+                this.config.isActive = true;
+                localStorage.setItem('nexus_ai_key', apiKey);
+                localStorage.setItem('nexus_ai_provider', this.config.provider);
+
+                if (window.__NEXUS_CONNECTION__) {
+                    window.__NEXUS_CONNECTION__.ai.apiKey = apiKey;
+                    window.__NEXUS_CONNECTION__.ai.provider = this.config.provider;
+                    window.__NEXUS_CONNECTION__.ai.isValidated = true;
+                }
+
+                console.log('%c╔══════════════════════════════════════════════════════════════════╗', 'color: #22c55e;');
+                console.log('%c║          🤖 AI AGENT - PRE-VALIDATED BY EXTENSION               ║', 'color: #22c55e; font-weight: bold;');
+                console.log('%c╚══════════════════════════════════════════════════════════════════╝', 'color: #22c55e;');
+                console.log(`%c   Provider: ${provider.icon} ${provider.name}`, 'color: #818cf8; font-size: 13px;');
+                console.log('%c   Status: ✅ ONLINE & READY (validated via extension)', 'color: #22c55e;');
+
+                this.updateUIStatus();
+                return true;
             }
 
             console.log('%c🔄 Validating API Key...', 'color: #818cf8;');
@@ -10151,6 +10265,75 @@ ALL FINDINGS (${report.allFindings.length} total)
                 return true;
             }
             return false;
+        },
+
+        // Query AI - main method for asking AI questions (CSP-safe)
+        async query(prompt) {
+            if (!this.config.apiKey || !this.config.isActive) {
+                console.log('%c⚠️ AI not configured. Use setAI(key) first.', 'color: #f59e0b;');
+                return null;
+            }
+
+            const provider = this.providers[this.config.provider];
+            if (!provider) {
+                console.log('%c❌ Unknown provider', 'color: #f43f5e;');
+                return null;
+            }
+
+            console.log(`%c🤖 Asking ${provider.icon} ${provider.name}...`, 'color: #818cf8;');
+
+            try {
+                const config = provider.format.call(provider, this.config.apiKey, prompt, provider.model);
+                const fetchOptions = {
+                    method: 'POST',
+                    headers: config.headers,
+                    body: JSON.stringify(config.body)
+                };
+
+                let responseData = null;
+
+                // Try direct fetch first
+                if (!this.config.cspBlocked) {
+                    const response = await this.silentFetch(config.url, fetchOptions);
+                    if (response.ok) {
+                        responseData = await response.json();
+                    }
+                }
+
+                // If direct failed, try bypass methods
+                if (!responseData) {
+                    const bypassResult = await this.bypassFetch(config.url, fetchOptions);
+                    if (bypassResult.success && bypassResult.response) {
+                        responseData = await bypassResult.response.json();
+                    }
+                }
+
+                if (!responseData) {
+                    console.log('%c❌ AI request failed - all methods exhausted', 'color: #f43f5e;');
+                    return null;
+                }
+
+                // Extract text based on provider format
+                let text = '';
+                if (this.config.provider === 'anthropic') {
+                    text = responseData.content?.[0]?.text || '';
+                } else if (this.config.provider === 'gemini') {
+                    text = responseData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                } else {
+                    // OpenAI-compatible (Groq, OpenAI, DeepSeek, OpenRouter)
+                    text = responseData.choices?.[0]?.message?.content || '';
+                }
+
+                if (text) {
+                    console.log(`%c🤖 ${provider.icon} Response:`, 'color: #22c55e; font-weight: bold;');
+                    console.log(text);
+                }
+
+                return text;
+            } catch (e) {
+                console.log(`%c❌ AI query error: ${e.message}`, 'color: #f43f5e;');
+                return null;
+            }
         },
 
         updateUIStatus() {
@@ -10323,19 +10506,33 @@ ALL FINDINGS (${report.allFindings.length} total)
                     return true;
                 }
 
-                // Check if CSP blocked all attempts
+                // Check if CSP blocked all attempts - try extension proxy
                 if (cspBlocked) {
                     this.config.cspBlocked = true;
+                    // Try extension proxy as last resort
+                    const extValid = await this.extensionProxyValidate();
+                    if (extValid) {
+                        this.config.isValidated = true;
+                        this.cspBypass.currentMethod = 'extension';
+                        if (!silent) {
+                            console.log('%c\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557', 'color: #22c55e;');
+                            console.log('%c\u2551       \ud83c\udf1f GEMINI VALIDATED VIA EXTENSION PROXY (CSP BYPASSED)   \u2551', 'color: #22c55e; font-weight: bold;');
+                            console.log('%c\u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d', 'color: #22c55e;');
+                        }
+                        this.updateUIStatus();
+                        return true;
+                    }
+
                     if (!silent) {
-                        console.log('%c╔══════════════════════════════════════════════════════════════════════════════════════════════════════╗', 'color: #f59e0b;');
-                        console.log('%c║                    ⚠️ CSP (CONTENT SECURITY POLICY) BLOCKING AI REQUESTS                             ║', 'color: #f59e0b; font-weight: bold;');
-                        console.log('%c╠══════════════════════════════════════════════════════════════════════════════════════════════════════╣', 'color: #f59e0b;');
-                        console.log('%c║  This website blocks external API calls. AI analysis won\'t work here.                               ║', 'color: #94a3b8;');
-                        console.log('%c║                                                                                                      ║', 'color: #f59e0b;');
-                        console.log('%c║  ✅ SOLUTION: Use autoExploit() - it works WITHOUT AI!                                              ║', 'color: #22c55e; font-weight: bold;');
-                        console.log('%c║  ✅ autoExploit() directly tests keys against real APIs                                             ║', 'color: #22c55e;');
-                        console.log('%c║  ✅ No external AI needed - all testing done locally                                                ║', 'color: #22c55e;');
-                        console.log('%c╚══════════════════════════════════════════════════════════════════════════════════════════════════════╝', 'color: #f59e0b;');
+                        console.log('%c\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557', 'color: #f59e0b;');
+                        console.log('%c\u2551                    \u26a0\ufe0f CSP (CONTENT SECURITY POLICY) BLOCKING AI REQUESTS                             \u2551', 'color: #f59e0b; font-weight: bold;');
+                        console.log('%c\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563', 'color: #f59e0b;');
+                        console.log('%c\u2551  This website blocks external API calls. AI analysis won\'t work here.                               \u2551', 'color: #94a3b8;');
+                        console.log('%c\u2551                                                                                                      \u2551', 'color: #f59e0b;');
+                        console.log('%c\u2551  \u2705 SOLUTION: Use autoExploit() - it works WITHOUT AI!                                              \u2551', 'color: #22c55e; font-weight: bold;');
+                        console.log('%c\u2551  \u2705 autoExploit() directly tests keys against real APIs                                             \u2551', 'color: #22c55e;');
+                        console.log('%c\u2551  \u2705 No external AI needed - all testing done locally                                                \u2551', 'color: #22c55e;');
+                        console.log('%c\u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d', 'color: #f59e0b;');
                     }
                     // Mark as not validated but save the key
                     this.config.isValidated = false;
@@ -10367,10 +10564,23 @@ ALL FINDINGS (${report.allFindings.length} total)
                     body: JSON.stringify(config.body)
                 });
 
-                // Check if CSP blocked
+                // Check if CSP blocked - try extension proxy
                 if (response.status === 0 || this.config.cspBlocked) {
                     if (!silent) {
-                        console.log('%c⚠️ CSP blocking API requests. AI disabled but key saved.', 'color: #f59e0b;');
+                        console.log('%c⚠️ CSP blocking direct call. Trying extension proxy...', 'color: #f59e0b;');
+                    }
+                    // Try extension proxy validation
+                    const extValid = await this.extensionProxyValidate();
+                    if (extValid) {
+                        this.config.isValidated = true;
+                        this.cspBypass.currentMethod = 'extension';
+                        if (!silent) {
+                            console.log('%c╔══════════════════════════════════════════════════════════════════╗', 'color: #22c55e;');
+                            console.log(`%c║         ✅ ${provider.icon} ${provider.name} VALIDATED VIA EXTENSION       ║`, 'color: #22c55e; font-weight: bold;');
+                            console.log('%c╚══════════════════════════════════════════════════════════════════╝', 'color: #22c55e;');
+                        }
+                        this.updateUIStatus();
+                        return true;
                     }
                     this.config.isValidated = false;
                     this.config.isActive = true;
@@ -15233,8 +15443,8 @@ Format as markdown.`;
     window.quickTest = (key, type) => AutoExploiter.quickTest(key, type);
     window.testKey = (key, type) => AutoExploiter.quickTest(key, type);
 
-    // AI Features (only works on sites without CSP)
-    window.setAI = (key, provider) => AIAgent.init(key, provider);
+    // AI Features (CSP-safe with extension proxy bypass)
+    window.setAI = (key, provider, skipValidation) => AIAgent.init(key, provider, skipValidation);
     window.setGroq = (key) => AIAgent.setBackupKey('groq', key);
     window.setOpenAI = (key) => AIAgent.setBackupKey('openai', key);
     window.setDeepSeek = (key) => AIAgent.setBackupKey('deepseek', key);
@@ -15245,6 +15455,7 @@ Format as markdown.`;
     window.showBackups = () => AIAgent.showBackups();
     window.clearAICache = () => { AIAgent.responseCache.clear(); console.log('%c🗑️ AI cache cleared', 'color: #22c55e;'); };
     window.aiOff = () => AIAgent.disconnect();
+    window.askAI = (q) => AIAgent.query(q);
     window.ai = () => AIAnalyzer.runFullAnalysis();
     window.aiTest = (key, type) => AIAnalyzer.quickAnalyze(key, type);
     window.aiChat = (q) => AIAnalyzer.chat(q);

@@ -8268,6 +8268,13 @@ RESPOND WITH ONLY A JSON ARRAY (no other text):
                 message: `Report processed: ${report?.summary?.totalFindings || 0} findings analyzed`,
                 timestamp: Date.now()
             }));
+
+            // === AUTO-ENTER AI AGENT INTERACTIVE MODE ===
+            const agentModeFindings = uniqueFindings?.length > 0 ? Array.from(findingsMap.values()) : (report.findings || []);
+            if (agentModeFindings.length > 0) {
+                log('\n🔒 Entering AI Agent interactive mode...', 'magenta');
+                AIAgentMode.enter(report, agentModeFindings, ws);
+            }
             break;
 
         // Receive findings from browser
@@ -9371,6 +9378,399 @@ async function handleAIQueryViaProxy(query, proxyConfig, ws) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// AI AGENT INTERACTIVE MODE - LOCKS TERMINAL FOR CONVERSATION
+// ══════════════════════════════════════════════════════════════════════════════
+
+const AIAgentMode = {
+    active: false,
+    memory: [],           // Conversation history: { role: 'user'|'agent', content, timestamp }
+    findings: [],         // Current findings being analyzed
+    report: null,         // Current report data
+    ws: null,             // WebSocket reference for browser commands
+    maxMemoryMessages: 50,
+    sessionStartTime: null,
+
+    // Enter agent mode
+    enter(report, findings, ws = null) {
+        this.active = true;
+        this.report = report;
+        this.findings = findings || report?.findings || [];
+        this.ws = ws;
+        this.sessionStartTime = Date.now();
+
+        // Don't reset memory if re-entering with same findings (allows exit + re-enter)
+        if (this.memory.length === 0) {
+            // Seed memory with findings context
+            this.memory.push({
+                role: 'system',
+                content: `AI Agent session started. ${this.findings.length} findings loaded. Risk: ${report?.summary?.riskLevel || 'UNKNOWN'}. Critical: ${report?.summary?.criticalCount || 0}, High: ${report?.summary?.highCount || 0}.`,
+                timestamp: Date.now()
+            });
+        }
+
+        // Display entry banner
+        const totalFindings = this.findings.length;
+        const critCount = report?.summary?.criticalCount || this.findings.filter(f => (f.severity || '').toUpperCase() === 'CRITICAL').length;
+        const highCount = report?.summary?.highCount || this.findings.filter(f => (f.severity || '').toUpperCase() === 'HIGH').length;
+        const liveCount = report?.summary?.validatedLive || this.findings.filter(f => f.testResult?.live).length;
+
+        console.log();
+        console.log(`${C.bold}${C.magenta}╔══════════════════════════════════════════════════════════════════════╗${C.reset}`);
+        console.log(`${C.bold}${C.magenta}║  🤖 AI AGENT MODE ACTIVATED                                        ║${C.reset}`);
+        console.log(`${C.bold}${C.magenta}╠══════════════════════════════════════════════════════════════════════╣${C.reset}`);
+        console.log(`${C.bold}${C.magenta}║${C.reset}  📊 ${totalFindings} findings loaded | ${C.red}${critCount} CRITICAL${C.reset} | ${C.yellow}${highCount} HIGH${C.reset} | ${C.green}${liveCount} LIVE${C.reset}     ${C.bold}${C.magenta}║${C.reset}`);
+        console.log(`${C.bold}${C.magenta}║${C.reset}  💬 Ask me anything about the findings                              ${C.bold}${C.magenta}║${C.reset}`);
+        console.log(`${C.bold}${C.magenta}║${C.reset}  📌 Commands: ${C.cyan}summary${C.reset} | ${C.cyan}finding N${C.reset} | ${C.cyan}test N${C.reset} | ${C.cyan}memory${C.reset} | ${C.cyan}clear${C.reset} | ${C.cyan}exit${C.reset} ${C.bold}${C.magenta}║${C.reset}`);
+        console.log(`${C.bold}${C.magenta}╚══════════════════════════════════════════════════════════════════════╝${C.reset}`);
+        console.log();
+
+        // Update readline prompt
+        if (CLI.rl) {
+            CLI.rl.setPrompt(`${C.magenta}${C.bold}agent🤖${C.reset}${C.cyan}>${C.reset} `);
+            CLI.rl.prompt();
+        }
+    },
+
+    // Exit agent mode
+    exit() {
+        this.active = false;
+        console.log();
+        console.log(`${C.yellow}🔓 AI Agent mode deactivated. Memory preserved (${this.memory.length} messages).${C.reset}`);
+        console.log(`${C.dim}   Type 'agent' to re-enter. Memory will be cleared on terminal restart.${C.reset}`);
+        console.log();
+
+        // Restore normal prompt
+        if (CLI.rl) {
+            CLI.rl.setPrompt(`${C.magenta}${C.bold}nexus${C.reset}${C.cyan}>${C.reset} `);
+            CLI.rl.prompt();
+        }
+    },
+
+    // Handle user input in agent mode
+    async handleInput(input) {
+        if (!input) return;
+        const trimmed = input.trim();
+        const lowerCmd = trimmed.toLowerCase();
+
+        // === Built-in agent commands ===
+        switch (lowerCmd) {
+            case 'exit':
+            case 'quit':
+            case 'back':
+                this.exit();
+                return;
+
+            case 'summary':
+                this.showSummary();
+                return;
+
+            case 'clear':
+                this.memory = [];
+                log('🧹 Agent memory cleared.', 'yellow');
+                return;
+
+            case 'memory':
+                this.showMemoryStats();
+                return;
+
+            case 'help':
+                this.showAgentHelp();
+                return;
+        }
+
+        // finding N — show details of finding N
+        const findingMatch = lowerCmd.match(/^finding\s+(\d+)$/);
+        if (findingMatch) {
+            this.showFinding(parseInt(findingMatch[1]));
+            return;
+        }
+
+        // test N — run validation for finding N
+        const testMatch = lowerCmd.match(/^test\s+(\d+)$/);
+        if (testMatch) {
+            await this.testFinding(parseInt(testMatch[1]));
+            return;
+        }
+
+        // === Everything else → AI conversation ===
+        await this.askAgent(trimmed);
+    },
+
+    // Show findings summary
+    showSummary() {
+        const findings = this.findings;
+        const byType = {};
+        findings.forEach(f => {
+            const sev = (f.severity || 'UNKNOWN').toUpperCase();
+            byType[sev] = (byType[sev] || 0) + 1;
+        });
+
+        console.log(`\n${C.bold}📊 FINDINGS SUMMARY:${C.reset}`);
+        console.log(`${C.dim}${'─'.repeat(50)}${C.reset}`);
+        Object.entries(byType).sort().forEach(([sev, count]) => {
+            const color = sev === 'CRITICAL' ? 'red' : sev === 'HIGH' ? 'yellow' : sev === 'MEDIUM' ? 'cyan' : 'dim';
+            console.log(`  ${C[color]}${sev}${C.reset}: ${count}`);
+        });
+        console.log(`${C.dim}${'─'.repeat(50)}${C.reset}`);
+        console.log(`  Total: ${findings.length}`);
+
+        // Show unique types
+        const types = {};
+        findings.forEach(f => { types[f.type] = (types[f.type] || 0) + 1; });
+        console.log(`\n${C.bold}📋 BY TYPE:${C.reset}`);
+        Object.entries(types).sort((a, b) => b[1] - a[1]).forEach(([type, count]) => {
+            console.log(`  ${C.cyan}${type}${C.reset}: ${count}`);
+        });
+        console.log();
+    },
+
+    // Show single finding detail
+    showFinding(index) {
+        // Support 1-indexed (user-friendly)
+        const i = index - 1;
+        if (i < 0 || i >= this.findings.length) {
+            log(`Invalid finding number. Range: 1-${this.findings.length}`, 'red');
+            return;
+        }
+
+        const f = this.findings[i];
+        const fullVal = f.fullValue || f.value || 'N/A';
+        const sev = (f.severity || 'UNKNOWN').toUpperCase();
+        const sevColor = sev === 'CRITICAL' ? 'red' : sev === 'HIGH' ? 'yellow' : 'cyan';
+        const liveTag = f.testResult?.live ? `${C.green}[LIVE]${C.reset}` : `${C.dim}[DEAD]${C.reset}`;
+
+        console.log(`\n${C.bold}═══════════════════════════════════════════════════════${C.reset}`);
+        console.log(`${C[sevColor]}[${index}] ${sev} - ${f.type}${C.reset} ${liveTag}`);
+        console.log(`${C.bold}═══════════════════════════════════════════════════════${C.reset}`);
+        console.log(`${C.white}  Value:   ${fullVal}${C.reset}`);
+        console.log(`${C.cyan}  Source:  ${f.source?.type || 'unknown'} → ${f.source?.location || 'unknown'}${C.reset}`);
+        if (f.source?.file) console.log(`${C.blue}  File:    ${f.source.file}${C.reset}`);
+        console.log(`${C.magenta}  Service: ${f.aiAnalysis?.service || f.service || 'Unknown'}${C.reset}`);
+        console.log(`${C.yellow}  Bounty:  ${f.aiAnalysis?.bountyEstimate || f.bountyEstimate || 'N/A'}${C.reset}`);
+        if (f.testResult?.permissions?.length > 0) {
+            console.log(`${C.red}  Perms:   ${f.testResult.permissions.join(', ')}${C.reset}`);
+        }
+        console.log();
+    },
+
+    // Test a specific finding with curl
+    async testFinding(index) {
+        const i = index - 1;
+        if (i < 0 || i >= this.findings.length) {
+            log(`Invalid finding number. Range: 1-${this.findings.length}`, 'red');
+            return;
+        }
+
+        const f = this.findings[i];
+        const fullValue = f.fullValue || f.value;
+        const type = (f.type || '').toUpperCase();
+
+        log(`🔍 Testing finding #${index}: ${f.type}...`, 'cyan');
+
+        // Determine curl command based on type/value
+        let cmd = null;
+        if (type.includes('GCP') || type.includes('GOOGLE') || type.includes('FIREBASE') || fullValue?.startsWith('AIza')) {
+            cmd = `curl -s "https://maps.googleapis.com/maps/api/geocode/json?address=test&key=${fullValue}"`;
+        } else if (type.includes('GROQ') || fullValue?.startsWith('gsk_')) {
+            cmd = `curl -s -H "Authorization: Bearer ${fullValue}" https://api.groq.com/openai/v1/models`;
+        } else if (type.includes('GITHUB') || fullValue?.startsWith('gh')) {
+            cmd = `curl -s -H "Authorization: token ${fullValue}" https://api.github.com/user`;
+        } else if (type.includes('OPENAI') || fullValue?.startsWith('sk-')) {
+            cmd = `curl -s -H "Authorization: Bearer ${fullValue}" https://api.openai.com/v1/models`;
+        } else if (type.includes('SLACK') || fullValue?.startsWith('xox')) {
+            cmd = `curl -s -H "Authorization: Bearer ${fullValue}" https://slack.com/api/auth.test`;
+        } else if (type.includes('STRIPE') || fullValue?.includes('sk_live')) {
+            cmd = `curl -s -u ${fullValue}: https://api.stripe.com/v1/balance`;
+        } else if (type.includes('TELEGRAM')) {
+            cmd = `curl -s "https://api.telegram.org/bot${fullValue}/getMe"`;
+        }
+
+        if (!cmd) {
+            // Ask AI for a test command
+            if (TerminalAI.config.isActive) {
+                log('  No known test pattern. Asking AI...', 'dim');
+                const resp = await TerminalAI.query(
+                    `What curl command can test if this credential is valid? Type: ${f.type}, Value: ${fullValue?.substring(0, 60)}. Reply with ONLY the curl command, nothing else.`,
+                    { systemPrompt: 'Reply with only a curl command. No explanation.' }
+                );
+                const curlMatch = resp?.match(/curl\s+.+/i);
+                if (curlMatch) cmd = curlMatch[0];
+            }
+
+            if (!cmd) {
+                log('  ❌ No test method available for this finding type.', 'yellow');
+                return;
+            }
+        }
+
+        console.log(`${C.dim}  $ ${cmd.substring(0, 80)}${cmd.length > 80 ? '...' : ''}${C.reset}`);
+
+        try {
+            const { exec } = require('child_process');
+            const result = await new Promise(resolve => {
+                exec(cmd, { timeout: 15000 }, (error, stdout, stderr) => {
+                    resolve({ stdout, stderr, error: error?.message });
+                });
+            });
+
+            if (result.stdout) {
+                const output = result.stdout.substring(0, 300);
+                if (result.stdout.includes('"error"') || result.stdout.includes('invalid') ||
+                    result.stdout.includes('unauthorized') || result.stdout.includes('REQUEST_DENIED')) {
+                    console.log(`${C.dim}  ⚪ Token appears INVALID/EXPIRED${C.reset}`);
+                } else if (result.stdout.includes('"id"') || result.stdout.includes('"login"') ||
+                    result.stdout.includes('"ok":true') || result.stdout.includes('"data"')) {
+                    console.log(`${C.red}${C.bold}  🔴 TOKEN APPEARS LIVE/VALID!${C.reset}`);
+                } else {
+                    console.log(`${C.cyan}  📥 Response received${C.reset}`);
+                }
+                console.log(`${C.dim}  ${output}${result.stdout.length > 300 ? '...' : ''}${C.reset}`);
+            } else if (result.error) {
+                console.log(`${C.dim}  ⚠️ ${result.error}${C.reset}`);
+            }
+        } catch (e) {
+            console.log(`${C.dim}  ⚠️ Test error: ${e.message}${C.reset}`);
+        }
+        console.log();
+    },
+
+    // Ask AI with full conversation context
+    async askAgent(question) {
+        if (!TerminalAI.config.isActive) {
+            log('❌ AI not configured. Use: ai-key YOUR_KEY (then re-enter agent mode)', 'red');
+            return;
+        }
+
+        // Add user message to memory
+        this.memory.push({ role: 'user', content: question, timestamp: Date.now() });
+
+        // Trim memory if too long
+        if (this.memory.length > this.maxMemoryMessages) {
+            // Keep system message + last N messages
+            const systemMsgs = this.memory.filter(m => m.role === 'system');
+            const conversationMsgs = this.memory.filter(m => m.role !== 'system');
+            this.memory = [...systemMsgs, ...conversationMsgs.slice(-this.maxMemoryMessages + systemMsgs.length)];
+        }
+
+        // Build context prompt
+        const contextPrompt = this.buildContext(question);
+
+        log('🤖 Thinking...', 'magenta');
+
+        try {
+            const response = await TerminalAI.query(contextPrompt, {
+                systemPrompt: 'You are NEXUS AI Agent — an expert security researcher assistant. You are analyzing findings from a web security scan. You have the full conversation history and findings data. Be concise, actionable, and technical. When the user asks about a specific finding, reference it by number. Suggest concrete next steps.'
+            });
+
+            if (response && !response.error) {
+                // Add to memory
+                this.memory.push({ role: 'agent', content: response, timestamp: Date.now() });
+
+                // Display response
+                console.log();
+                console.log(`${C.magenta}${C.bold}🤖 Agent:${C.reset}`);
+                console.log(`${C.white}${response}${C.reset}`);
+                console.log();
+            } else {
+                log(`❌ AI error: ${response?.error || 'No response'}`, 'red');
+                // Remove failed user message from memory
+                this.memory.pop();
+            }
+        } catch (e) {
+            log(`❌ AI query failed: ${e.message}`, 'red');
+            this.memory.pop();
+        }
+    },
+
+    // Build full context prompt with conversation history + findings
+    buildContext(currentQuestion) {
+        let context = `=== SECURITY SCAN FINDINGS (${this.findings.length} total) ===\n`;
+
+        // Add top findings (limit to avoid token overflow)
+        const topFindings = this.findings.slice(0, 30);
+        topFindings.forEach((f, i) => {
+            const val = (f.fullValue || f.value || '').substring(0, 60);
+            const sev = (f.severity || '?').toUpperCase();
+            const live = f.testResult?.live ? 'LIVE' : 'DEAD';
+            context += `[${i + 1}] ${sev} | ${f.type} | ${live} | ${val}\n`;
+        });
+        if (this.findings.length > 30) {
+            context += `... and ${this.findings.length - 30} more findings\n`;
+        }
+
+        // Add report summary if available
+        if (this.report?.summary) {
+            context += `\n=== REPORT SUMMARY ===\n`;
+            context += `Risk Level: ${this.report.summary.riskLevel || 'UNKNOWN'}\n`;
+            context += `Total: ${this.report.summary.totalFindings || 0}, Critical: ${this.report.summary.criticalCount || 0}, High: ${this.report.summary.highCount || 0}\n`;
+            context += `Validated Live: ${this.report.summary.validatedLive || 0}\n`;
+        }
+
+        // Add conversation history (last 20 messages)
+        const recentMessages = this.memory.filter(m => m.role !== 'system').slice(-20);
+        if (recentMessages.length > 0) {
+            context += `\n=== CONVERSATION HISTORY ===\n`;
+            recentMessages.forEach(m => {
+                const prefix = m.role === 'user' ? 'USER' : 'AGENT';
+                context += `${prefix}: ${m.content.substring(0, 300)}\n`;
+            });
+        }
+
+        // Current question
+        context += `\n=== CURRENT QUESTION ===\n${currentQuestion}`;
+
+        return context;
+    },
+
+    // Show memory stats
+    showMemoryStats() {
+        const userMsgs = this.memory.filter(m => m.role === 'user').length;
+        const agentMsgs = this.memory.filter(m => m.role === 'agent').length;
+        const systemMsgs = this.memory.filter(m => m.role === 'system').length;
+        const totalChars = this.memory.reduce((sum, m) => sum + (m.content?.length || 0), 0);
+        const sessionDuration = this.sessionStartTime ? Math.round((Date.now() - this.sessionStartTime) / 1000) : 0;
+
+        logBox('🧠 AGENT MEMORY', [
+            `Total Messages: ${this.memory.length}/${this.maxMemoryMessages}`,
+            `User Messages: ${userMsgs}`,
+            `Agent Responses: ${agentMsgs}`,
+            `System Messages: ${systemMsgs}`,
+            `Total Characters: ${totalChars.toLocaleString()}`,
+            `Est. Tokens: ~${Math.round(totalChars / 4)}`,
+            `Findings Loaded: ${this.findings.length}`,
+            `Session Duration: ${sessionDuration}s`,
+            `Memory Type: TEMPORARY (clears on restart)`
+        ], 'cyan');
+    },
+
+    // Agent help
+    showAgentHelp() {
+        logBox('🤖 AI AGENT MODE COMMANDS', [
+            '',
+            `${C.cyan}${C.bold}NAVIGATION:${C.reset}`,
+            '  summary        Show all findings summary',
+            '  finding N      Show detailed info for finding #N',
+            '  test N         Run validation test for finding #N',
+            '',
+            `${C.magenta}${C.bold}CONVERSATION:${C.reset}`,
+            '  (any text)     Ask AI about the findings',
+            '  memory         Show conversation memory stats',
+            '  clear          Clear conversation memory',
+            '',
+            `${C.yellow}${C.bold}EXAMPLES:${C.reset}`,
+            '  "Which findings are most likely real?"',
+            '  "Analyze finding 74 - is the GROQ key valid?"',
+            '  "Generate a bug bounty report for the critical findings"',
+            '  "What are the false positives in this scan?"',
+            '',
+            `${C.red}${C.bold}EXIT:${C.reset}`,
+            '  exit / quit / back   Return to nexus> terminal',
+            ''
+        ], 'magenta');
+    }
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
 // CLI INTERFACE - HUMAN OPERATOR
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -9412,6 +9812,12 @@ const CLI = {
 
     async handleCommand(input) {
         if (!input) return;
+
+        // Handle AI Agent mode — route all input to agent
+        if (AIAgentMode.active) {
+            await AIAgentMode.handleInput(input);
+            return;
+        }
 
         // Handle bulk input mode (for pasting multiple keys)
         if (this.bulkInputMode && this.bulkInputMode.active) {
@@ -10519,6 +10925,20 @@ const CLI = {
                 log(`Auto-sync: ${CONFIG.AUTO_SYNC ? 'ENABLED' : 'DISABLED'}`, CONFIG.AUTO_SYNC ? 'green' : 'yellow');
                 break;
 
+            // === AI AGENT INTERACTIVE MODE ===
+            case 'agent':
+            case 'agent-mode':
+                const agentReport = DataStore.getCustom('lastAIAgentReport');
+                if (agentReport) {
+                    const agentFindings = agentReport.findings || agentReport.rawData?.findings || DataStore.data.findings;
+                    AIAgentMode.enter(agentReport, agentFindings);
+                } else if (DataStore.data.findings.length > 0) {
+                    AIAgentMode.enter({ summary: { totalFindings: DataStore.data.findings.length } }, DataStore.data.findings);
+                } else {
+                    log('No findings available. Run a scan first, or wait for AI Agent report.', 'yellow');
+                }
+                break;
+
             case 'deep':
             case 'deep-analysis':
             case 'analyze':
@@ -10700,6 +11120,11 @@ Respond in JSON only:
             '  brain-stop     Stop AI Brain',
             '  brain-status   Show AI Brain status',
             '  discoveries    Show AI discoveries',
+            '',
+            `${C.magenta}${C.bold}🤖 AI AGENT (INTERACTIVE MODE):${C.reset}`,
+            '  agent          Enter AI Agent interactive mode',
+            '  agent-mode     Same as agent',
+            `${C.dim}  (auto-enters when AI Agent findings arrive)${C.reset}`,
             '',
             `${C.red}${C.bold}🚀 FULL AUTOMATION (ONE CLICK):${C.reset}`,
             '  fullpwn        Run EVERYTHING automatically',

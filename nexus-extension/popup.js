@@ -1042,57 +1042,54 @@ class NexusExtension {
         }
     }
 
-    // Test AI Connection
+    // Test AI Connection - validates through background.js (CSP-safe)
     async testAIConnection() {
         this.log('Testing AI connection...', 'info');
 
-        const result = await chrome.scripting.executeScript({
-            target: { tabId: this.state.tabId },
-            func: async () => {
-                try {
-                    // Check if AIAgent exists and is configured
-                    if (!window.AIAgent) {
-                        return { success: false, error: 'AIAgent not loaded' };
-                    }
+        // Get current AI config from storage
+        const key = this.state.settings.aiApiKey;
+        const provider = this.state.aiProvider;
 
-                    const config = window.AIAgent.config;
-                    if (!config.apiKey) {
-                        return { success: false, error: 'No API key configured' };
-                    }
-
-                    // Test with actual validation
-                    const isValid = await window.AIAgent.validateAPIKey(true);
-
-                    return {
-                        success: isValid,
-                        provider: config.provider,
-                        isActive: config.isActive,
-                        isValidated: config.isValidated,
-                        message: isValid ? 'Connection successful!' : 'Validation failed'
-                    };
-                } catch (e) {
-                    return { success: false, error: e.message };
-                }
-            },
-            args: [],
-            world: 'MAIN'
-        });
-
-        const testResult = result?.[0]?.result;
-
-        if (testResult?.success) {
-            this.log(`AI TEST PASSED: ${testResult.provider} ✅`, 'success');
-            this.notify('AI Connection OK!');
-            this.updateAIStatusIndicator(true, testResult.provider);
-            this.updateStatus('ai', true);
-        } else {
-            this.log(`AI TEST FAILED: ${testResult?.error || 'Unknown error'}`, 'error');
-            this.notify('AI test failed!', true);
-            this.updateAIStatusIndicator(false);
-            this.updateStatus('ai', false);
+        if (!key) {
+            this.log('No API key configured', 'error');
+            this.notify('Set API key first!', true);
+            return false;
         }
 
-        return testResult?.success;
+        // Validate via background.js (bypasses CSP entirely)
+        try {
+            const validationResult = await new Promise((resolve) => {
+                chrome.runtime.sendMessage({
+                    type: 'AI_VALIDATE_KEY',
+                    provider: provider,
+                    apiKey: key
+                }, (response) => {
+                    if (chrome.runtime.lastError) {
+                        resolve({ valid: false, error: chrome.runtime.lastError.message });
+                    } else {
+                        resolve(response || { valid: false, error: 'No response' });
+                    }
+                });
+            });
+
+            if (validationResult?.valid) {
+                this.log(`AI TEST PASSED: ${validationResult.provider} ✅`, 'success');
+                this.notify('AI Connection OK!');
+                this.updateAIStatusIndicator(true, validationResult.provider);
+                this.updateStatus('ai', true);
+                return true;
+            } else {
+                this.log(`AI TEST FAILED: ${validationResult?.error || 'Unknown error'}`, 'error');
+                this.notify('AI test failed!', true);
+                this.updateAIStatusIndicator(false);
+                this.updateStatus('ai', false);
+                return false;
+            }
+        } catch (e) {
+            this.log('Test error: ' + e.message, 'error');
+            this.notify('AI test failed!', true);
+            return false;
+        }
     }
 
     // Get current AI status
@@ -1128,15 +1125,23 @@ class NexusExtension {
 
         this.log('Asking AI...', 'info');
 
+        // Try via page context first (uses AIAgent.query which has CSP bypass)
         await chrome.scripting.executeScript({
             target: { tabId: this.state.tabId },
             func: (q) => {
+                // Try all available methods
                 if (typeof askAI === 'function') {
                     askAI(q);
                 } else if (window.AIAgent?.query) {
                     window.AIAgent.query(q);
+                } else if (window.AIAgent?.ask) {
+                    window.AIAgent.ask(q).then(r => console.log(r)).catch(e => console.error(e));
+                } else if (typeof aiChat === 'function') {
+                    aiChat(q);
                 } else if (window.TerminalBridge?.isConnected?.()) {
                     window.TerminalBridge.send({ type: 'ai_query', query: q });
+                } else {
+                    console.log('%c\u274c No AI method available. Set AI key first.', 'color: #f43f5e;');
                 }
             },
             args: [question],
