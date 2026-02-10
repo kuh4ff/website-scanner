@@ -1,5 +1,5 @@
 /**
- * NEXUS Scanner Pro v5.0 - Background Service Worker
+ * NEXUS Scanner Pro v5.1 - Background Service Worker
  * Handles WebSocket, Script Injection, Message Relay, and Remote Config
  */
 
