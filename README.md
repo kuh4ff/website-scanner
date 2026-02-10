@@ -1,11 +1,11 @@
 <div align="center">
 
 <!-- Animated Header -->
-<img src="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=6,11,20&height=220&section=header&text=⚡%20NEXUS%20SCANNER%20PRO%20v5.1&fontSize=45&fontColor=fff&animation=twinkling&fontAlignY=38&desc=Advanced%20AI-Powered%20Web%20Security%20Scanner%20%26%20Exploitation%20Suite&descSize=16&descAlignY=58" width="100%"/>
+<img src="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=6,11,20&height=200&section=header&text=⚡%20NEXUS%20SCANNER%20PRO&fontSize=50&fontColor=fff&animation=twinkling&fontAlignY=35&desc=Advanced%20AI-Powered%20Web%20Security%20Scanner&descSize=18&descAlignY=55" width="100%"/>
 
 <!-- Animated Badges -->
 <p>
-  <img src="https://img.shields.io/badge/Version-5.1-blueviolet?style=for-the-badge&logo=v&logoColor=white" alt="Version">
+  <img src="https://img.shields.io/badge/Version-5.0-blueviolet?style=for-the-badge&logo=v&logoColor=white" alt="Version">
   <img src="https://img.shields.io/badge/Node.js-18+-339933?style=for-the-badge&logo=node.js&logoColor=white" alt="Node.js">
   <img src="https://img.shields.io/badge/Chrome-Extension-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Chrome">
   <img src="https://img.shields.io/badge/AI-Multi--Model-FF6F61?style=for-the-badge&logo=openai&logoColor=white" alt="AI">
@@ -14,7 +14,7 @@
 
 <!-- Typing Animation -->
 <a href="https://github.com/kuh4ff/website-scanner">
-  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=20&duration=3000&pause=1000&color=8B5CF6&center=true&vCenter=true&multiline=true&repeat=true&width=650&height=100&lines=⚡+Direct+AI+Chat+%26+Findings+Analysis;🔍+200%2B+Secret+Detection+Patterns;🤖+7+AI+Providers+(Groq%2C+OpenAI%2C+DeepSeek...);💻+Real-time+Terminal+Bridge+%26+Remote+Control;🚀+Auto-Exploit+Generation+%26+Critical+Analysis" alt="Typing SVG" />
+  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=22&duration=3000&pause=1000&color=8B5CF6&center=true&vCenter=true&multiline=true&repeat=true&width=600&height=100&lines=🔍+200%2B+Secret+Detection+Patterns;🤖+6+AI+Providers+Integrated;💻+Real-time+Terminal+Bridge;🚀+Auto-Exploit+%26+Auto-Heal" alt="Typing SVG" />
 </a>
 
 <br><br>
@@ -34,14 +34,13 @@
 
 ## 🎯 What is NEXUS Scanner Pro?
 
-**NEXUS Scanner Pro v5.1** is an enterprise-grade, AI-driven web security assessment toolkit. It bridges the gap between browser-based scanning and server-side power, offering:
+**NEXUS Scanner Pro** is an enterprise-grade web security assessment toolkit that combines:
 
-- 🔍 **Advanced Security Scanner** - Detects secrets, XSS, SSRF, and misconfigurations in real-time.
-- 🤖 **Multi-AI Intelligence** - Integrates **Groq, OpenAI, Gemini, DeepSeek, Anthropic, Mistral**, and **OpenRouter**.
-- 💻 **Terminal Commander** - WebSocket bridge for remote shell execution and file synchronization.  
-- 🧠 **Autonomous AI Brain** - Analyzes findings to generate security reports and PoCs automatically.
-- ⚡ **Auto-Exploitation** - One-click generation of curl commands and exploit scripts.
-- 🌐 **Chrome Extension** - Custom devtools panel with direct AI chat and DOM injection.
+- 🔍 **Advanced Security Scanner** - 200+ patterns for secrets, vulns, and misconfigurations
+- 🤖 **Multi-AI Integration** - 6 providers with automatic failover
+- 💻 **Terminal Commander** - Real-time browser ↔ server communication  
+- 🧠 **Autonomous AI Brain** - Self-directed security analysis
+- ⚡ **Auto-Exploitation** - One-click vulnerability testing
 
 ---
 
@@ -53,26 +52,30 @@
 
 ### 🔐 Security Scanning
 - ✅ API Key Detection (50+ providers)
-- ✅ DOM XSS & Prototype Pollution
-- ✅ CORS & Header Analysis
-- ✅ SSRF & Open Redirect Indicators
-- ✅ GraphQL & WebSocket Security
-- ✅ Storage & Cookie Inspection
-- ✅ PostMessage Vulnerabilities
-- ✅ Critical Vulnerability Highlighting
+- ✅ DOM XSS Analysis
+- ✅ CORS Misconfiguration
+- ✅ SSRF Indicators
+- ✅ Open Redirect
+- ✅ Prototype Pollution
+- ✅ GraphQL Vulnerabilities
+- ✅ WebSocket Security
+- ✅ PostMessage Flaws
+- ✅ Security Headers
 
 </td>
 <td width="50%">
 
-### 🤖 AI Capabilities (v5.1)
-- ✅ **Direct AI Chat** in Extension
-- ✅ **Analyze All Findings** (One-Click)
-- ✅ **Generate PoCs** & Exploits
-- ✅ **Summarize Results**
-- ✅ **Identify Critical Issues**
-- ✅ Multi-Provider Failover
+### 🤖 AI Capabilities
+- ✅ Multi-Provider Support
+- ✅ Automatic Failover
 - ✅ Rate Limit Bypass
-- ✅ Autonomous Analysis Agent
+- ✅ Response Caching
+- ✅ AI Collaboration Mode
+- ✅ Autonomous Brain
+- ✅ Smart Fallbacks
+- ✅ Batch Analysis
+- ✅ Key Rotation
+- ✅ Browser Key Sync
 
 </td>
 </tr>
