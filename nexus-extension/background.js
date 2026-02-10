@@ -169,6 +169,10 @@ class NexusBackground {
                 this.validateAIKey(msg.provider, msg.apiKey, sendResponse);
                 break;
 
+            case 'AI_CHAT':
+                this.aiChat(msg.provider, msg.apiKey, msg.prompt, msg.systemPrompt, sendResponse);
+                break;
+
             default:
                 console.log('[NEXUS] Unknown message type:', msg.type);
                 sendResponse({ error: 'Unknown message type' });
@@ -263,6 +267,101 @@ class NexusBackground {
         } catch (e) {
             console.error('[NEXUS] AI key validation error:', e);
             sendResponse({ valid: false, error: e.message });
+        }
+    }
+
+    // ==================== AI Chat - Full conversation endpoint ====================
+    async aiChat(provider, apiKey, prompt, systemPrompt, sendResponse) {
+        try {
+            console.log('[NEXUS] AI Chat request for:', provider);
+
+            const configs = {
+                groq: {
+                    url: 'https://api.groq.com/openai/v1/chat/completions',
+                    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+                    body: { model: 'llama-3.3-70b-versatile', messages: [], max_tokens: 4096, temperature: 0.3 },
+                    extract: (d) => d.choices?.[0]?.message?.content || ''
+                },
+                openai: {
+                    url: 'https://api.openai.com/v1/chat/completions',
+                    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+                    body: { model: 'gpt-4o-mini', messages: [], max_tokens: 4096, temperature: 0.3 },
+                    extract: (d) => d.choices?.[0]?.message?.content || ''
+                },
+                deepseek: {
+                    url: 'https://api.deepseek.com/v1/chat/completions',
+                    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+                    body: { model: 'deepseek-chat', messages: [], max_tokens: 4096, temperature: 0.3 },
+                    extract: (d) => d.choices?.[0]?.message?.content || ''
+                },
+                gemini: {
+                    url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: { contents: [{ parts: [{ text: '' }] }], generationConfig: { maxOutputTokens: 4096, temperature: 0.3 } },
+                    extract: (d) => d.candidates?.[0]?.content?.parts?.[0]?.text || ''
+                },
+                anthropic: {
+                    url: 'https://api.anthropic.com/v1/messages',
+                    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+                    body: { model: 'claude-3-haiku-20240307', messages: [], max_tokens: 4096 },
+                    extract: (d) => d.content?.[0]?.text || ''
+                },
+                mistral: {
+                    url: 'https://api.mistral.ai/v1/chat/completions',
+                    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+                    body: { model: 'mistral-small-latest', messages: [], max_tokens: 4096, temperature: 0.3 },
+                    extract: (d) => d.choices?.[0]?.message?.content || ''
+                },
+                openrouter: {
+                    url: 'https://openrouter.ai/api/v1/chat/completions',
+                    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+                    body: { model: 'meta-llama/llama-3.3-70b-instruct', messages: [], max_tokens: 4096, temperature: 0.3 },
+                    extract: (d) => d.choices?.[0]?.message?.content || ''
+                }
+            };
+
+            const config = configs[provider];
+            if (!config) {
+                sendResponse({ success: false, error: 'Unknown provider: ' + provider });
+                return;
+            }
+
+            // Build request body based on provider
+            let body;
+            if (provider === 'gemini') {
+                const fullPrompt = systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt;
+                body = { contents: [{ parts: [{ text: fullPrompt }] }], generationConfig: config.body.generationConfig };
+            } else if (provider === 'anthropic') {
+                body = { ...config.body, messages: [{ role: 'user', content: prompt }] };
+                if (systemPrompt) body.system = systemPrompt;
+            } else {
+                // OpenAI-compatible (Groq, OpenAI, DeepSeek, Mistral, OpenRouter)
+                const messages = [];
+                if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
+                messages.push({ role: 'user', content: prompt });
+                body = { ...config.body, messages };
+            }
+
+            const response = await fetch(config.url, {
+                method: 'POST',
+                headers: config.headers,
+                body: JSON.stringify(body)
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                const errMsg = data.error?.message || data.message || `API error ${response.status}`;
+                sendResponse({ success: false, error: errMsg });
+                return;
+            }
+
+            const text = config.extract(data);
+            sendResponse({ success: true, text, provider });
+
+        } catch (e) {
+            console.error('[NEXUS] AI Chat error:', e);
+            sendResponse({ success: false, error: e.message });
         }
     }
 

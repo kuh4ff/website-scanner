@@ -290,9 +290,19 @@ class NexusExtension {
             });
         });
         document.getElementById('btnSetAI').addEventListener('click', () => this.setAIKey());
-        document.getElementById('btnAskAI').addEventListener('click', () => this.askAI());
+        document.getElementById('btnAskAI').addEventListener('click', () => this.askAI(false));
+        document.getElementById('btnAskWithFindings')?.addEventListener('click', () => this.askAI(true));
         document.getElementById('btnTestAI').addEventListener('click', () => this.testAIConnection());
         document.getElementById('btnSyncFindings').addEventListener('click', () => this.syncFindingsToTerminal());
+        document.getElementById('btnClearAIResponse')?.addEventListener('click', () => {
+            const panel = document.getElementById('aiResponsePanel');
+            if (panel) panel.innerHTML = '<div class="ai-empty-state"><div style="font-size:28px;margin-bottom:8px;opacity:0.4;">🤖</div><div style="font-size:10px;color:var(--text-muted);">AI responses will appear here.</div></div>';
+        });
+        document.getElementById('btnAIAnalyze')?.addEventListener('click', () => this.analyzeFindings());
+        document.getElementById('btnAISummarize')?.addEventListener('click', () => this.aiQuickAction('summarize'));
+        document.getElementById('btnAICritical')?.addEventListener('click', () => this.aiQuickAction('critical'));
+        document.getElementById('btnAIPoCs')?.addEventListener('click', () => this.aiQuickAction('pocs'));
+        document.getElementById('btnAIExploits')?.addEventListener('click', () => this.aiQuickAction('exploits'));
 
         // Terminal page
         document.getElementById('btnConnect').addEventListener('click', () => this.connectTerminal());
@@ -1116,39 +1126,310 @@ class NexusExtension {
         return status;
     }
 
-    async askAI() {
-        const question = document.getElementById('aiQuestion').value.trim();
+    async askAI(includeFindings = false) {
+        const question = document.getElementById('aiQuestion')?.value?.trim();
         if (!question) {
             this.notify('Enter a question', true);
             return;
         }
 
+        const provider = this.state.aiProvider;
+        const apiKey = this.state.settings?.aiApiKey;
+        if (!apiKey) {
+            this.notify('Set AI API key first', true);
+            return;
+        }
+
         this.log('Asking AI...', 'info');
+        this.showAILoading('Thinking...');
 
-        // Try via page context first (uses AIAgent.query which has CSP bypass)
-        await chrome.scripting.executeScript({
-            target: { tabId: this.state.tabId },
-            func: (q) => {
-                // Try all available methods
-                if (typeof askAI === 'function') {
-                    askAI(q);
-                } else if (window.AIAgent?.query) {
-                    window.AIAgent.query(q);
-                } else if (window.AIAgent?.ask) {
-                    window.AIAgent.ask(q).then(r => console.log(r)).catch(e => console.error(e));
-                } else if (typeof aiChat === 'function') {
-                    aiChat(q);
-                } else if (window.TerminalBridge?.isConnected?.()) {
-                    window.TerminalBridge.send({ type: 'ai_query', query: q });
-                } else {
-                    console.log('%c\u274c No AI method available. Set AI key first.', 'color: #f43f5e;');
-                }
+        let prompt = question;
+
+        // If include findings, collect and append
+        if (includeFindings) {
+            const findings = await this.collectFindings();
+            if (findings) {
+                prompt = `Context - Current Security Scan Findings:\n${findings}\n\nUser Question: ${question}`;
+            }
+        }
+
+        const systemPrompt = `You are an expert security researcher and bug bounty hunter. You analyze web application security findings, identify vulnerabilities, suggest exploits, and provide actionable security advice. Be specific, technical, and thorough. Format your response with clear sections using markdown headers and bullet points.`;
+
+        try {
+            const result = await new Promise((resolve) => {
+                chrome.runtime.sendMessage({
+                    type: 'AI_CHAT',
+                    provider: provider,
+                    apiKey: apiKey,
+                    prompt: prompt,
+                    systemPrompt: systemPrompt
+                }, (response) => {
+                    if (chrome.runtime.lastError) {
+                        resolve({ success: false, error: chrome.runtime.lastError.message });
+                    } else {
+                        resolve(response);
+                    }
+                });
+            });
+
+            if (result?.success && result.text) {
+                this.displayAIResponse(result.text, `Answer (${provider})`);
+                this.log('AI response received', 'success');
+                document.getElementById('aiQuestion').value = '';
+            } else {
+                this.displayAIResponse(result?.error || 'No response from AI', 'Error', true);
+                this.log('AI error: ' + (result?.error || 'No response'), 'error');
+            }
+        } catch (e) {
+            this.displayAIResponse(e.message, 'Error', true);
+            this.log('AI error: ' + e.message, 'error');
+        }
+    }
+
+    // ==================== AI Response Display ====================
+    displayAIResponse(text, label = 'AI Response', isError = false) {
+        const panel = document.getElementById('aiResponsePanel');
+        if (!panel) return;
+
+        // Format text: basic markdown rendering
+        let formatted = this.escapeHtml(text)
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.*?)\*/g, '<em>$1</em>')
+            .replace(/`([^`]+)`/g, '<code>$1</code>')
+            .replace(/^### (.*$)/gm, '<div style="color:#8b5cf6;font-weight:700;margin:8px 0 4px;font-size:11px;">$1</div>')
+            .replace(/^## (.*$)/gm, '<div style="color:#a78bfa;font-weight:700;margin:10px 0 4px;font-size:12px;">$1</div>')
+            .replace(/^# (.*$)/gm, '<div style="color:#c4b5fd;font-weight:700;margin:12px 0 6px;font-size:13px;">$1</div>')
+            .replace(/^- (.*$)/gm, '<div style="padding-left:12px;">• $1</div>')
+            .replace(/^\d+\. (.*$)/gm, '<div style="padding-left:12px;">$&</div>')
+            .replace(/\n/g, '<br>');
+
+        const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+
+        const messageHtml = `
+            <div class="ai-message ${isError ? 'ai-message-error' : ''}">
+                <div class="ai-message-header">
+                    <span>${isError ? '❌' : '🤖'}</span>
+                    <span>${label}</span>
+                    <span style="margin-left:auto; opacity:0.5;">${time}</span>
+                </div>
+                <div class="ai-message-content">${formatted}</div>
+            </div>
+        `;
+
+        panel.innerHTML = messageHtml;
+        panel.scrollTop = panel.scrollHeight;
+    }
+
+    showAILoading(text = 'Analyzing...') {
+        const panel = document.getElementById('aiResponsePanel');
+        if (!panel) return;
+        panel.innerHTML = `
+            <div class="ai-loading">
+                <div class="ai-loading-dots">
+                    <span></span><span></span><span></span>
+                </div>
+                <span>${text}</span>
+            </div>
+        `;
+    }
+
+    // ==================== Collect Findings for AI ====================
+    async collectFindings() {
+        try {
+            const results = await chrome.scripting.executeScript({
+                target: { tabId: this.state.tabId },
+                func: () => {
+                    const output = { url: location.href, findings: [], secrets: [], vulns: [], endpoints: [], headers: {} };
+
+                    // Scanner API
+                    if (window.Scanner?.getFindings) {
+                        output.findings = (window.Scanner.getFindings() || []).map(f => ({
+                            type: f.type, value: (f.value || '').substring(0, 200), severity: f.severity, source: f.source, status: f.status
+                        }));
+                    }
+
+                    // Vault
+                    if (window.__NEXUS__?.Vault?.secrets instanceof Map) {
+                        window.__NEXUS__.Vault.secrets.forEach((entry, value) => {
+                            output.secrets.push({ type: entry.type, severity: entry.severity, value: value.substring(0, 100), source: entry.source });
+                        });
+                    }
+
+                    // VulnScanner
+                    if (window.__NEXUS__?.VulnScanner?.findings) {
+                        output.vulns = window.__NEXUS__.VulnScanner.findings.map(v => ({
+                            type: v.type, detail: (v.detail || v.description || '').substring(0, 200), severity: v.severity
+                        }));
+                    }
+
+                    // Endpoints
+                    if (window.__NEXUS__?.DataCollector?.endpoints) {
+                        output.endpoints = Array.from(window.__NEXUS__.DataCollector.endpoints || []).slice(0, 30);
+                    }
+
+                    // Security headers
+                    const headerTests = ['content-security-policy', 'x-frame-options', 'strict-transport-security', 'x-content-type-options', 'x-xss-protection'];
+                    output.headers = { tested: headerTests };
+
+                    return output;
+                },
+                world: 'MAIN'
+            });
+
+            const data = results[0]?.result;
+            if (!data) return null;
+
+            // Format as readable text for AI
+            let text = `Target URL: ${data.url}\n`;
+            text += `\n📊 FINDINGS (${data.findings.length}):\n`;
+            data.findings.forEach((f, i) => {
+                text += `  [${i + 1}] ${f.severity || 'INFO'} - ${f.type}: ${f.value}\n`;
+            });
+            text += `\n🔐 SECRETS (${data.secrets.length}):\n`;
+            data.secrets.forEach((s, i) => {
+                text += `  [${i + 1}] ${s.severity || 'HIGH'} - ${s.type}: ${s.value}\n`;
+            });
+            text += `\n⚠️ VULNERABILITIES (${data.vulns.length}):\n`;
+            data.vulns.forEach((v, i) => {
+                text += `  [${i + 1}] ${v.severity || 'MEDIUM'} - ${v.type}: ${v.detail}\n`;
+            });
+            text += `\n🔗 ENDPOINTS (${data.endpoints.length}):\n`;
+            data.endpoints.slice(0, 20).forEach((e, i) => {
+                text += `  [${i + 1}] ${e}\n`;
+            });
+
+            return text;
+        } catch (e) {
+            console.error('Collect findings error:', e);
+            return null;
+        }
+    }
+
+    // ==================== AI Findings Analysis ====================
+    async analyzeFindings() {
+        const provider = this.state.aiProvider;
+        const apiKey = this.state.settings?.aiApiKey;
+        if (!apiKey) {
+            this.notify('Set AI API key first', true);
+            return;
+        }
+
+        this.showAILoading('Collecting findings & analyzing...');
+        this.log('Collecting findings for AI analysis...', 'info');
+
+        const findings = await this.collectFindings();
+        if (!findings || findings.includes('FINDINGS (0)') && findings.includes('SECRETS (0)') && findings.includes('VULNERABILITIES (0)')) {
+            this.displayAIResponse('No findings to analyze. Run a scan first (Inject → Start).', 'No Data', true);
+            return;
+        }
+
+        const systemPrompt = `You are an elite security researcher performing a comprehensive security assessment. Analyze the provided scan findings and generate a professional security report. Be extremely detailed and actionable.`;
+
+        const prompt = `Analyze these security scan findings and provide a comprehensive report:
+
+${findings}
+
+Generate a DETAILED security report with these sections:
+1. **🎯 Executive Summary** - Overall risk level, key concerns
+2. **🚨 Critical Findings** - Most dangerous issues requiring immediate attention
+3. **🔐 Secrets Analysis** - Leaked keys/tokens, their potential impact, and exploitation steps
+4. **⚠️ Vulnerability Assessment** - Each vuln with CVSS-like severity, attack vector, and remediation
+5. **💥 Proof of Concept** - Working PoC code/curl commands for top 3 findings
+6. **🎭 Attack Scenarios** - How an attacker would chain these findings
+7. **📋 Recommendations** - Priority-ordered remediation steps
+
+Be specific with actual values found. Include curl commands and exploitation code where applicable.`;
+
+        try {
+            const result = await new Promise((resolve) => {
+                chrome.runtime.sendMessage({
+                    type: 'AI_CHAT',
+                    provider, apiKey, prompt, systemPrompt
+                }, (response) => {
+                    resolve(chrome.runtime.lastError ? { success: false, error: chrome.runtime.lastError.message } : response);
+                });
+            });
+
+            if (result?.success && result.text) {
+                this.displayAIResponse(result.text, `Security Analysis (${provider})`);
+                this.log('AI analysis complete', 'success');
+            } else {
+                this.displayAIResponse(result?.error || 'Analysis failed', 'Error', true);
+            }
+        } catch (e) {
+            this.displayAIResponse(e.message, 'Error', true);
+        }
+    }
+
+    // ==================== AI Quick Actions ====================
+    async aiQuickAction(actionType) {
+        const provider = this.state.aiProvider;
+        const apiKey = this.state.settings?.aiApiKey;
+        if (!apiKey) {
+            this.notify('Set AI API key first', true);
+            return;
+        }
+
+        const findings = await this.collectFindings();
+        if (!findings) {
+            this.notify('No findings available. Run a scan first.', true);
+            return;
+        }
+
+        const actions = {
+            summarize: {
+                label: 'Summary',
+                loading: 'Summarizing findings...',
+                system: 'You are a concise security analyst. Provide brief, actionable summaries.',
+                prompt: `Summarize these security scan findings in a clear, structured format. Highlight the most important items, overall risk level, and top 3 actions needed:\n\n${findings}`
             },
-            args: [question],
-            world: 'MAIN'
-        });
+            critical: {
+                label: 'Critical Vulnerabilities',
+                loading: 'Identifying critical vulns...',
+                system: 'You are a vulnerability researcher focused on high-impact security issues.',
+                prompt: `From these findings, identify ONLY the critical and high-severity vulnerabilities. For each one, explain: what it is, why it is critical, how to exploit it, and proof-of-concept code:\n\n${findings}`
+            },
+            pocs: {
+                label: 'Proof of Concepts',
+                loading: 'Generating PoCs...',
+                system: 'You are a penetration tester specializing in writing working proof-of-concept exploits.',
+                prompt: `Generate working Proof of Concept (PoC) code for the most exploitable findings. Include: curl commands, JavaScript payloads, or Python scripts. Make them copy-paste ready:\n\n${findings}`
+            },
+            exploits: {
+                label: 'Exploit Advice',
+                loading: 'Analyzing exploit paths...',
+                system: 'You are a red team operator who chains vulnerabilities for maximum impact.',
+                prompt: `Analyze these findings for exploitation opportunities. For each exploitable finding, provide: attack vector, exploitation steps, chaining possibilities with other findings, and expected impact. Focus on practical attacks:\n\n${findings}`
+            }
+        };
 
-        this.log('AI query sent - check console', 'success');
+        const action = actions[actionType];
+        if (!action) return;
+
+        this.showAILoading(action.loading);
+        this.log(action.loading, 'info');
+
+        try {
+            const result = await new Promise((resolve) => {
+                chrome.runtime.sendMessage({
+                    type: 'AI_CHAT',
+                    provider, apiKey,
+                    prompt: action.prompt,
+                    systemPrompt: action.system
+                }, (response) => {
+                    resolve(chrome.runtime.lastError ? { success: false, error: chrome.runtime.lastError.message } : response);
+                });
+            });
+
+            if (result?.success && result.text) {
+                this.displayAIResponse(result.text, `${action.label} (${provider})`);
+                this.log(`${action.label} complete`, 'success');
+            } else {
+                this.displayAIResponse(result?.error || 'Failed', 'Error', true);
+            }
+        } catch (e) {
+            this.displayAIResponse(e.message, 'Error', true);
+        }
     }
 
     // Sync Findings to Terminal with AI Analysis
